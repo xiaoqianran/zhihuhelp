@@ -13,7 +13,7 @@ import Login from './component/login'
 import './index.less'
 
 let Item = () => {
-  let tabItemList: TabsProps[] = []
+  let tabItemList: TabsProps['items'] = []
 
   let { currentTab, setCurrentTab } = useContext(Context.CurrentTab)
 
@@ -33,7 +33,7 @@ let Item = () => {
     tabItemList.push({
       label: Consts_Page.Const_Page_Title[key],
       key: key,
-      children: tabMap[key](),
+      children: React.createElement(tabMap[key]),
     })
   }
 
@@ -43,8 +43,8 @@ let Item = () => {
         centered
         items={tabItemList}
         activeKey={currentTab}
-        onChange={(e: Types_Page.Type_Page_Url) => {
-          setCurrentTab(e)
+        onChange={(e) => {
+          setCurrentTab(e as Types_Page.Type_Page_Url)
         }}
       ></Tabs>
     </div>

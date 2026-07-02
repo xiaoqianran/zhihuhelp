@@ -82,17 +82,17 @@ async function asyncCreateWindow() {
     // 禁用web安全功能 --> 个人软件, 要啥自行车
     webPreferences: {
       // 使用preload.js, 以进行rpc通信
-      preload: path.join(__dirname, 'preload.js'),
+      preload: path.resolve(__dirname, 'preload.js'),
       // 开启 DevTools.
       devTools: true,
       // 禁用同源策略, 允许加载任何来源的js
       webSecurity: false,
       // 允许 https 页面运行 http url 里的资源
       allowRunningInsecureContent: true,
-      // 禁用node支持-从而有效加快页面启动速度
-      // nodeIntegration: false,
-      // Electron12后, 启用node支持时还需要关闭上下文隔离
-      // contextIsolation: false,
+      // preload + webview 在 Linux 下需要关闭 sandbox
+      sandbox: false,
+      nodeIntegration: false,
+      contextIsolation: true,
       // 启用webview标签
       webviewTag: true,
     },
@@ -123,8 +123,15 @@ async function asyncCreateWindow() {
   // and load the index.html of the app.
   if (isDebug) {
     // 本地调试 & 打开控制台
-    // mainWindow.loadFile('./client/index.html')
-    mainWindow.loadURL('http://localhost:8080')
+    // 注意: 直接访问 http://localhost:8080 是普通浏览器页面, 没有 electronAPI
+    // 只有从 Electron 窗口加载时 preload 才会注入 electronAPI
+    let useViteDevServer = process.env.ZHIHUHELP_VITE_DEV === '1'
+    if (useViteDevServer) {
+      mainWindow.loadURL('http://localhost:8080')
+    } else {
+      // 默认加载已构建页面, 避免 preload 在 dev server 下失效
+      mainWindow.loadFile(path.resolve(__dirname, 'client', 'index.html'))
+    }
     mainWindow.webContents.openDevTools()
 
     let jsRpcUri = path.resolve(__dirname, 'public', 'js-rpc', 'index.html')
@@ -173,10 +180,21 @@ async function asyncCreateWindow() {
   // 设置ua
   session.defaultSession.webRequest.onBeforeSendHeaders((details, callback) => {
     details.requestHeaders['User-Agent'] =
-      'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/71.0.3578.98 Safari/537.36'
+      'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
     callback({ cancel: false, requestHeaders: details.requestHeaders })
   })
 }
+
+// webview 内知乎登录弹窗会在新窗口打开, 需要拦截后在本 webview 内跳转
+app.on('web-contents-created', (_event, contents) => {
+  if (contents.getType() !== 'webview') {
+    return
+  }
+  contents.setWindowOpenHandler(({ url }) => {
+    contents.loadURL(url)
+    return { action: 'deny' }
+  })
+})
 
 async function asyncUpdateCookie() {
   let cookieContent = ''

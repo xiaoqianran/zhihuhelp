@@ -1,0 +1,10 @@
+[Desktop Entry]
+Type=Application
+Name=知乎助手
+Comment=启动知乎助手
+Exec=/root/Downloads/pro/zhihuhelp/node_modules/.bin/electron --no-sandbox --disable-gpu --disable-dev-shm-usage /root/Downloads/pro/zhihuhelp/dist/index.js --zhihuhelp-debug
+Path=/root/Downloads/pro/zhihuhelp
+Icon=/root/Downloads/pro/zhihuhelp/src/public/icon/icon.png
+Terminal=false
+Categories=Utility;
+StartupNotify=true
