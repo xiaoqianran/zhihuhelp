@@ -1,0 +1,39 @@
+# .gitingestignore
+# gitingest 专用的忽略规则（语法与 .gitignore 相同）
+# 作用：让生成的 digest 只保留真正有用的代码，减少 LLM 上下文噪声
+# 注意：此文件不会影响 git 提交
+
+# ========== 依赖锁文件（体积大且无逻辑价值） ==========
+pnpm-lock.yaml
+package-lock.json
+yarn.lock
+
+# ========== 样式文件（可选保留） ==========
+# 如果你需要完整的前端样式信息，可以把下面两行注释掉
+**/*.less
+**/*.css
+
+# ========== 构建脚本与产物 ==========
+client/script/**
+scripts/**
+dist/**
+release/**
+build/**
+
+# ========== 文档与开发记录（对代码理解帮助有限） ==========
+doc/**
+
+# ========== 临时/调试/开发杂项 ==========
+terminals/**
+mcps/**
+**/*.map
+*.log
+electron_*.log
+smoke_*.log
+
+# 运行时生成的配置文件
+demo.*.json
+config.json
+task_config_list.json
+read_list.txt
+customer_task_config.json
