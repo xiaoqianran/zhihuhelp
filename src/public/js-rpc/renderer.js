@@ -1,11 +1,12 @@
 /**
- * 在webview中初始化加密函数
+ * 初始化加密函数。
+ *
+ * 之前这里依赖隐藏 webview 加载知乎页面后再注入代码。Linux/Electron 环境下
+ * webview 很容易卡在 dom-ready 之前，导致主进程一直等待 js-rpc ready。
+ * 加密代码本身只依赖当前 JS 环境，直接在当前签名页初始化即可。
  */
 async function asyncInitZhihuEncrypt() {
-  // @ts-ignore
-  //  webviewEle.openDevTools()
-  await webviewEle.executeJavaScript(
-    `
+  const script = `
     // 原代码
     function rawZhihuEncryptFunc(module, exports) {
     "use strict";
@@ -525,19 +526,37 @@ async function asyncInitZhihuEncrypt() {
   let exportsV2_6d0f4ed = {}
   rawZhihuEncryptFunc({}, exportsV2_6d0f4ed, {})
   // 随便起个名字, 方便后续调用
-  var zhihuEncryptFunc_4c9c58 = exportsV2_6d0f4ed.ZP
-  `,
-  )
+  window.zhihuEncryptFunc_4c9c58 = exportsV2_6d0f4ed.ZP
+  `
+  Function(script)()
 }
 
-let webviewEle
+function asyncTimeout(promise, timeoutMs, message) {
+  return new Promise((resolve, reject) => {
+    const timer = setTimeout(() => {
+      reject(new Error(message))
+    }, timeoutMs)
+    promise
+      .then((value) => {
+        clearTimeout(timer)
+        resolve(value)
+      })
+      .catch((e) => {
+        clearTimeout(timer)
+        reject(e)
+      })
+  })
+}
+
+function updateStatus(text) {
+  const statusEle = document.getElementById('rpc-status')
+  if (statusEle) {
+    statusEle.innerText = text
+  }
+}
 
 /**
- * 启动后无法直接找到webview, 需要等待一段时间后才能加载完成. 因此需要异步配置
- *
- * 这个时间比较短, 只要点击启动任务的速度别太快, 就不会有问题
- *
- * 实在需要判断的话, 可以通过加密结果是否为空字符串进行判断
+ * 初始化签名 RPC 页。
  */
 async function asyncInit() {
   async function asyncSleep(ms) {
@@ -547,24 +566,28 @@ async function asyncInit() {
       }, ms)
     })
   }
-  while (!!webviewEle === false) {
-    await asyncSleep(1000)
-    webviewEle = document.querySelector('webview#zhihuhelp-rpc')
-  }
   // 初始化加密函数
-  await asyncInitZhihuEncrypt()
-  console.log('加密函数初始化完毕')
+  try {
+    updateStatus('签名服务初始化中...')
+    await asyncTimeout(asyncInitZhihuEncrypt(), 10000, 'init zhihu encrypt timeout')
+    console.log('[js-rpc] 加密函数初始化完毕')
+    updateStatus('签名服务已就绪')
+    while (true) {
+      try {
+        await window.electronAPI.jsRpcReady()
+        console.log('[js-rpc] ready sent')
+        break
+      } catch (e) {
+        console.log('[js-rpc] ready send failed, retry later:', e?.message)
+        updateStatus(`签名服务已就绪，等待主进程连接: ${e?.message || ''}`)
+        await asyncSleep(1000)
+      }
+    }
+  } catch (e) {
+    console.log('[js-rpc] init failed:', e)
+    updateStatus(`签名服务初始化失败: ${e?.message || e}`)
+  }
 }
-
-/**
- * 打开webview的开发者工具, 调试用
- */
-function openDevTools() {
-  webviewEle?.openDevTools()
-}
-// 只能通过该方法用html触发js文件中的函数
-// 参考: https://stackoverflow.com/questions/36324333/refused-to-execute-inline-event-handler-because-it-violates-csp-sandbox
-document.getElementById('open-devtools').addEventListener('click', openDevTools)
 
 /**
  * 实际加密函数, 加密失败返回空字符串
@@ -573,11 +596,11 @@ document.getElementById('open-devtools').addEventListener('click', openDevTools)
  */
 async function asyncEncrypt(inputStr) {
   // console.log('start asyncEncrypt => ', inputStr)
-  if (!!webviewEle === false) {
-    // rpc-webview尚未完成初始化
+  if (typeof window.zhihuEncryptFunc_4c9c58 !== 'function') {
+    // 加密函数尚未完成初始化
     return ''
   }
-  let result = await webviewEle.executeJavaScript(`zhihuEncryptFunc_4c9c58(\`${inputStr}\`)`)
+  let result = window.zhihuEncryptFunc_4c9c58(inputStr)
   // console.log('asyncEncrypt  result => ', result)
   return result
 }

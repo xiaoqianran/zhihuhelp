@@ -3,6 +3,7 @@ const { contextBridge, ipcRenderer } = require('electron')
 contextBridge.exposeInMainWorld('electronAPI', {
   ['get-task-default-title']: async (...args) => ipcRenderer.invoke('get-task-default-title', ...args),
   ['get-common-config']: async () => ipcRenderer.invoke('get-common-config'),
+  ['get-zhihu-login-status']: async () => ipcRenderer.invoke('get-zhihu-login-status'),
   ['start-customer-task']: async (...args) => ipcRenderer.invoke('start-customer-task', ...args),
   ['zhihu-http-get']: async (...args) => ipcRenderer.invoke('zhihu-http-get', ...args),
   ['open-output-dir']: async () => ipcRenderer.invoke('open-output-dir'),

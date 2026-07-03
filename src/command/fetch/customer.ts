@@ -17,6 +17,7 @@ import BatchFetchPin from '~/src/api/batch/pin'
 import BatchFetchQuestion from '~/src/api/batch/question'
 import BatchFetchTopic from '~/src/api/batch/topic'
 import json5 from 'json5'
+import CommonUtil from '~/src/library/util/common'
 
 class FetchCustomer extends Base {
   public static commandName = 'Fetch:Customer'
@@ -25,8 +26,8 @@ class FetchCustomer extends Base {
   async execute(): Promise<any> {
     this.log(`从${PathConfig.configUri}中读取配置文件`)
     let fetchConfigJSON = fs.readFileSync(PathConfig.configUri).toString()
-    this.log('content =>', fetchConfigJSON)
     let customerTaskConfig: Type_Task_Config.Type_Task_Config = json5.parse(fetchConfigJSON)
+    this.log('content =>', CommonUtil.sanitizeConfigForLog(customerTaskConfig))
     this.log(`开始进行自定义抓取, 共有${customerTaskConfig.fetchTaskList.length}个任务`)
     // 首先, 将任务进行汇总
     type TypeTaskPackage = {

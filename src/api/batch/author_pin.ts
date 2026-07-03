@@ -5,12 +5,50 @@ import BatchFetchPin from '~/src/api/batch/pin'
 import Base from '~/src/api/batch/base'
 import CommonUtil from '~/src/library/util/common'
 import CommonConfig from '~/src/config/common'
+import lodash from 'lodash'
+import MPin from '~/src/model/pin'
 
 class BatchFetchAuthorPin extends Base {
+  private getResumeTolerance(expectedCount: number) {
+    return Math.max(5, Math.ceil(expectedCount * 0.05))
+  }
+
+  private async canSkipAuthorPinByCache(urlToken: string) {
+    if (CommonUtil.isResumeFetchMode() === false) {
+      return false
+    }
+    const authorInfo = await MAuthor.asyncGetAuthor(urlToken)
+    if (lodash.isEmpty(authorInfo)) {
+      return false
+    }
+    const cachedPinList = await MPin.asyncGetPinListByAuthorUrlToken(urlToken)
+    const expectedPinCount = authorInfo.pins_count ?? 0
+    if (expectedPinCount <= 0 || cachedPinList.length === 0) {
+      return false
+    }
+    const missingCount = expectedPinCount - cachedPinList.length
+    if (missingCount <= this.getResumeTolerance(expectedPinCount)) {
+      this.log(
+        `继续上次模式: 用户${authorInfo.name}(${urlToken})本地已有${cachedPinList.length}/${expectedPinCount}个想法, 跳过用户信息和想法列表抓取`,
+      )
+      return true
+    }
+    this.log(
+      `继续上次模式: 用户${authorInfo.name}(${urlToken})本地只有${cachedPinList.length}/${expectedPinCount}个想法, 将刷新想法列表并补抓缺失想法`,
+    )
+    return false
+  }
+
   async fetch(urlToken: string) {
+    if (await this.canSkipAuthorPinByCache(urlToken)) {
+      return
+    }
     this.log(`开始抓取用户${urlToken}的数据`)
     this.log(`获取用户信息`)
     const authorInfo = await AuthorApi.asyncGetAutherInfo(urlToken)
+    if (lodash.isEmpty(authorInfo)) {
+      throw new Error(`用户${urlToken}信息抓取失败: 接口返回空数据`)
+    }
     await MAuthor.asyncReplaceAuthor(authorInfo)
     this.log(`用户信息获取完毕`)
     const name = authorInfo.name

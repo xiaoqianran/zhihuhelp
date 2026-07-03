@@ -1,5 +1,5 @@
 import Logger from '~/src/library/logger'
-import CommonUtil from '~/src/library/util/common'
+import CommonUtil, { SkipProtectedTaskError } from '~/src/library/util/common'
 import lodash from 'lodash'
 
 class BaseBatchFetch {
@@ -23,17 +23,23 @@ class BaseBatchFetch {
   async fetchListAndSaveToDb(idList: string[]) {
     const label = this.constructor.name
     let index = 0
+    let errorList: Error[] = []
     for (let id of idList) {
       index = index + 1
       let taskIndex = index
-      this.log(`添加第${taskIndex}/${idList.length}个抓取任务(${id})`)
+      this.log(`添加第${taskIndex}/${idList.length}个处理任务(${id})`)
       let asyncTaskFunc = async () => {
         await this.fetch(id)
           .then(() => {
             this.log(`第${taskIndex}/${idList.length}个任务(${id})执行完毕`)
           })
           .catch((e) => {
+            if (e instanceof SkipProtectedTaskError || e?.name === 'SkipProtectedTaskError') {
+              throw e
+            }
             this.log(`第${taskIndex}/${idList.length}个任务(${id})执行失败, 错误原因=>`, e)
+            errorList.push(e)
+            throw e
           })
       }
       // 通过统一的任务中心执行
@@ -45,12 +51,15 @@ class BaseBatchFetch {
     await CommonUtil.asyncWaitAllTaskComplete({
       needTTL: false
     })
+    if (errorList.length > 0) {
+      throw new Error(`${label}有${errorList.length}个抓取任务失败`)
+    }
     // switch (label) {
     //   case "BatchFetchAuthorAnswer":
     //     console.log("here")
     //     break;
     // }
-    this.log(`所有抓取任务执行完毕`)
+    this.log(`所有处理任务执行完毕`)
   }
 
   /**
@@ -61,7 +70,11 @@ class BaseBatchFetch {
     let message = ''
     for (const rawMessage of argumentList) {
       if (lodash.isString(rawMessage) === false) {
-        message = message + JSON.stringify(rawMessage)
+        if (rawMessage instanceof Error) {
+          message = message + (rawMessage.stack || rawMessage.message)
+        } else {
+          message = message + JSON.stringify(rawMessage)
+        }
       } else {
         message = message + rawMessage
       }

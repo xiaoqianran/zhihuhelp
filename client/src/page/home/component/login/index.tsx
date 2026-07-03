@@ -39,20 +39,13 @@ export default () => {
       }
     }
 
-    let handleWillNavigate = (event: Event) => {
-      let e = event as Event & { url?: string }
-      console.log('[zhihu-login] navigate => ', e.url)
-    }
-
     webviewEle.addEventListener('new-window', handleNewWindow)
-    webviewEle.addEventListener('will-navigate', handleWillNavigate)
 
     webviewContainerRef.current.innerHTML = ''
     webviewContainerRef.current.appendChild(webviewEle)
 
     return () => {
       webviewEle.removeEventListener('new-window', handleNewWindow)
-      webviewEle.removeEventListener('will-navigate', handleWillNavigate)
       if (webviewContainerRef.current) {
         webviewContainerRef.current.innerHTML = ''
       }
@@ -65,7 +58,6 @@ export default () => {
         <Button
           onClick={() => {
             let webviewEle = document.querySelector('webview#zhihu-login') as any
-            console.log('webviewEle => ', webviewEle)
             webviewEle?.openDevTools()
           }}
         >

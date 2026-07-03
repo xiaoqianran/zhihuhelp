@@ -2,6 +2,7 @@ import axios, { AxiosRequestConfig } from 'axios'
 import CommonConfig from '~/src/config/common'
 import RequestConfig from '~/src/config/request'
 import logger from '~/src/library/logger'
+import CommonUtil from '~/src/library/util/common'
 import asyncGetZhihuEncrypt from '~/src/library/zhihu_encrypt/index'
 import querystring from 'querystring'
 import lodash from 'lodash'
@@ -90,10 +91,12 @@ export async function asyncGenerateZhihuExtendsHeader({
   }
 
   // 执行加密
+  logger.log(`准备生成知乎请求签名:${encrypt_url}`)
   let x_zst_96 = await asyncGetZhihuEncrypt({
     cookie_d_c0: cookie_d_c0,
     url: encrypt_url,
   })
+  logger.log(`知乎请求签名生成完毕:${encrypt_url}`)
   // 返回最终的header
   return {
     'User-Agent': ua,
@@ -128,6 +131,18 @@ export default class httpClient {
       delete config.params
     }
 
+    const cacheKey = md5(JSON.stringify({
+      url,
+      // 重新登录账号后, 缓存作废
+      cookie: RequestConfig.cookie,
+      ua: RequestConfig.ua,
+    }))
+    const shouldUseCache = CommonUtil.isResumeFetchMode()
+    if (shouldUseCache && lruCache.get(cacheKey) !== undefined) {
+      logger.log(`命中内存缓存, 跳过签名和网络请求, url=>${url}`)
+      return lruCache.get(cacheKey)
+    }
+
     // 发送知乎请求时, 需要额外附带校验header, 否则报错
     let extendHeader = await asyncGenerateZhihuExtendsHeader({
       url: url,
@@ -141,27 +156,21 @@ export default class httpClient {
       ...config.headers,
       ...extendHeader,
     }
-    const cacheKey = md5(JSON.stringify({
-      url,
-      // 重新登录账号后, 缓存作废
-      cookie: RequestConfig.cookie,
-      ua: RequestConfig.ua,
-    }))
-    if (lruCache.get(cacheKey) !== undefined) {
-      console.log(`命中缓存, 直接返回结果, url=>${url}`)
-      return lruCache.get(cacheKey)
-    }
 
     const response = await httpInstance.get(url, config).catch((e) => {
+      const statusCode = e?.response?.status
+      if (statusCode === 403 || statusCode === 429) {
+        e.zhihuhelpStopImmediately = true
+      }
       logger.log(
         `网络请求失败, 两种可能: 1.知乎更换了接口签名算法, 知乎私信@姚泽源 更新代码 2. 您的账号可能因抓取频繁被知乎认为有风险, 在浏览器中访问知乎首页,输入验证码即可恢复`,
       )
-      logger.log(`错误内容=> message:${e.message}, stack=>${e.stack}`)
-      return { data: [] }
+      logger.log(`错误内容=> status:${statusCode}, message:${e.message}, stack=>${e.stack}`)
+      throw e
     })
     const record = response.data || {}
 
-    if (lodash.isEmpty(record) === false) {
+    if (shouldUseCache && lodash.isEmpty(record) === false) {
       // 若响应值不为空, 则缓存响应结果, 保护知乎服务器
       lruCache.set(cacheKey, record)
     }

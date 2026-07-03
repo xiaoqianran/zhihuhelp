@@ -11,6 +11,8 @@ class Logger {
     for (let logItem of [...arg]) {
       if (lodash.isString(logItem)) {
         stringLogItemList.push(` ${logItem} `)
+      } else if (logItem instanceof Error) {
+        stringLogItemList.push(` ${logItem.stack || logItem.message} `)
       } else {
         stringLogItemList.push(JSON.stringify(logItem, null, 4))
       }

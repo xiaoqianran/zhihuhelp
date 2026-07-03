@@ -21,6 +21,10 @@ export const Const_Task_Type_回答 = 'answer' as const
 export const Const_Task_Type_想法 = 'pin' as const
 export const Const_Task_Type_混合类型 = 'mix' as const
 
+// 抓取模式
+export const Const_Fetch_Mode_继续上次 = 'resume' as const
+export const Const_Fetch_Mode_从头抓取 = 'restart' as const
+
 // 内容输出策略
 export const Const_Generate_Type_独立输出电子书 = 'single' as const
 export const Const_Generate_Type_合并输出电子书_按任务拆分章节 = 'merge_by_task' as const
@@ -61,6 +65,9 @@ export const Const_Default_Cookie = '' as const
  */
 export const Const_Default_Config: Type_TaskConfig.Type_Task_Config = {
   fetchTaskList: [],
+  fetchConfig: {
+    mode: Const_Fetch_Mode_继续上次,
+  },
   generateConfig: {
     imageQuilty: 'hd', // 图片质量
     bookTitle: '', // 书名

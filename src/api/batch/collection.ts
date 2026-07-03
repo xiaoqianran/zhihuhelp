@@ -6,12 +6,16 @@ import BatchFetchAnswer from '~/src/api/batch/answer'
 import BatchFetchPin from '~/src/api/batch/pin'
 import BatchFetchArticle from '~/src/api/batch/article'
 import Logger from '~/src/library/logger'
+import lodash from 'lodash'
 
 class BatchFetchCollection extends Base {
   async fetch(id: string) {
     this.log(`开始抓取收藏夹${id}内的回答`)
     this.log(`获取收藏夹信息`)
     const collectionInfo = await CollectionApi.asyncGetCollectionInfo(id)
+    if (lodash.isEmpty(collectionInfo)) {
+      throw new Error(`收藏夹${id}信息抓取失败: 接口返回空数据`)
+    }
     await MCollection.asyncReplaceCollectionInfo(collectionInfo)
     let answerCount = collectionInfo.answer_count
     this.log(`话题${collectionInfo.title}(${collectionInfo.id})信息获取完毕, 共有回答${answerCount}个`)

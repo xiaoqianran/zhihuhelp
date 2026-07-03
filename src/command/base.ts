@@ -22,6 +22,8 @@ class Base extends BaseCommand {
     await this.execute().catch((e) => {
       this.log('catch error')
       this.log(e.stack)
+      ; (global as any).__zhihuhelp_last_command_error = e
+      throw e
     })
     this.log('command finish')
   }
@@ -41,7 +43,11 @@ class Base extends BaseCommand {
     let message = ''
     for (const rawMessage of argumentList) {
       if (lodash.isString(rawMessage) === false) {
-        message = message + JSON.stringify(rawMessage)
+        if (rawMessage instanceof Error) {
+          message = message + (rawMessage.stack || rawMessage.message)
+        } else {
+          message = message + JSON.stringify(rawMessage)
+        }
       } else {
         message = message + rawMessage
       }

@@ -12,6 +12,7 @@ export type Type_Form_Config = {
         "rawInputText": "https://www.zhihu.com/people/xie-lu-tian-e/answers" | string,
         skipFetch: boolean
     }[],
+    "fetchMode": TypeTaskConfig.Type_Fetch_Mode,
     "orderItemList": {
         "orderBy": "asc",
         "orderWith": "createAt"
@@ -35,11 +36,18 @@ export default class Util {
 
         // 抓取任务
         config.fetchTaskList = []
+        config.fetchConfig = {
+            mode: param.fetchMode ?? ConstTaskConfig.Const_Fetch_Mode_继续上次,
+        }
         for (let taskItem of param["taskItemList"]) {
+            const taskId = taskItem.id || Util.matchId({
+                taskType: taskItem.type,
+                rawInputText: taskItem.rawInputText,
+            })
 
             let fetchTaskItem: TypeTaskConfig.Type_Task_Config['fetchTaskList'][number] = {
                 "comment": "",
-                "id": taskItem.id,
+                "id": taskId,
                 "rawInputText": taskItem.rawInputText,
                 "skipFetch": taskItem.skipFetch,
                 "type": taskItem.type
@@ -76,6 +84,7 @@ export default class Util {
             "taskItemList": [],
             "bookTitle": "",
             "comment": "",
+            "fetchMode": ConstTaskConfig.Const_Fetch_Mode_继续上次,
             "generateType": "single",
             "imageQuilty": "hd",
             "maxItemInBook": 10000,
@@ -96,6 +105,7 @@ export default class Util {
         // 任务执行配置
         formConfig = {
             "taskItemList": formConfig['taskItemList'],
+            "fetchMode": config.fetchConfig?.mode ?? ConstTaskConfig.Const_Fetch_Mode_继续上次,
             "bookTitle": config.generateConfig.bookTitle,
             "imageQuilty": config.generateConfig.imageQuilty,
             "maxItemInBook": config.generateConfig.maxItemInBook,

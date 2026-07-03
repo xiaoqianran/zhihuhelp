@@ -10,4 +10,8 @@ contextBridge.exposeInMainWorld('electronAPI', {
     await ipcRenderer.invoke('js-rpc-response', { id, value })
     return
   },
+  jsRpcReady: async () => {
+    await ipcRenderer.invoke('js-rpc-ready')
+    return
+  },
 })

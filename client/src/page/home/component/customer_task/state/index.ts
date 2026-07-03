@@ -21,6 +21,7 @@ export type Type_Status = {
 
 export type Type_FormValue = {
     "taskItemList": Types_Task_Config.Type_Fetch_Task_Config_Item[]
+    "fetchMode": Types_Task_Config.Type_Fetch_Mode
     "imageQuilty": Types_Task_Config.Type_Image_Quilty // 图片质量
     "bookTitle": string // 书名
     comment: string // 备注
@@ -31,6 +32,7 @@ export type Type_FormValue = {
 
 export const Const_Default_FormValue: Type_FormValue = {
     "taskItemList": [],
+    "fetchMode": Consts_Task_Config.Const_Fetch_Mode_继续上次,
     "imageQuilty": Consts_Task_Config.Const_Image_Quilty_高清,
     "bookTitle": "",
     "comment": "",

@@ -71,6 +71,7 @@ export type Type_Order_By_Config = {
 export type Type_Order_By_Config_List = Type_Order_By_Config[]
 
 export type Type_Max_Item_In_Book = number // 自动分卷: 单本电子书中最大问题/文章数量
+export type Type_Fetch_Mode = 'resume' | 'restart'
 export type Type_Fetch_Task_Config_Item = {
   type: Type_Item_Collection_Type | Type_Author_Collection_Type
   id: string
@@ -82,6 +83,9 @@ export type Type_Fetch_Task_Config_Item = {
 // 自定义抓取
 export type Type_Task_Config = {
   fetchTaskList: Type_Fetch_Task_Config_Item[]
+  fetchConfig?: {
+    mode: Type_Fetch_Mode
+  }
   generateConfig: {
     imageQuilty: Type_Image_Quilty // 图片质量
     bookTitle: string // 书名

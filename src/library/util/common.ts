@@ -8,6 +8,13 @@ import md5 from 'md5'
 
 type Type_Asnyc_Task_Runner = (...paramList: any[]) => Promise<any>
 
+export class SkipProtectedTaskError extends Error {
+  constructor(message: string) {
+    super(message)
+    this.name = 'SkipProtectedTaskError'
+  }
+}
+
 type Type_Task_Config = {
   /**
    * 待执行任务函数
@@ -69,6 +76,15 @@ class TaskManager {
   private protectConfig = {
     perTask2Protect: 10,
     protectMs: 10 * 1000,
+  }
+
+  private isStopImmediatelyError(e: any) {
+    const statusCode = e?.response?.status
+    return e?.zhihuhelpStopImmediately === true || statusCode === 403 || statusCode === 429
+  }
+
+  private isSkipProtectedTaskError(e: any) {
+    return e instanceof SkipProtectedTaskError || e?.name === 'SkipProtectedTaskError'
   }
 
   // 添加任务
@@ -146,27 +162,29 @@ class TaskManager {
     needTTL: boolean
   }) {
     let taskCompleteCounter = 0
+    let taskSkippedCounter = 0
     let taskFailedCounter = 0
     let taskRunningCounter = 0
     let taskTotalCounter = taskPool.taskList.length
+    let taskErrorList: Error[] = []
 
     let taskPromiseList = AsyncPool(this.maxTaskRunner, taskPool.taskList, async (asyncRunnerConfig) => {
       let asyncRunner = async () => {
         taskRunningCounter++
-        logger.log(`[uuid:${asyncRunnerConfig.uuid}]开始执行第${asyncRunnerConfig.taskLoopNo}轮第${asyncRunnerConfig.taskNo}个任务, 当前任务执行情况:待执行${taskTotalCounter - taskCompleteCounter - taskFailedCounter}个, 执行中${taskRunningCounter}个, 已完成${taskCompleteCounter}个, 已失败${taskFailedCounter}个`)
+        logger.log(`[uuid:${asyncRunnerConfig.uuid}]开始执行第${asyncRunnerConfig.taskLoopNo}轮第${asyncRunnerConfig.taskNo}个任务, 当前任务执行情况:待执行${taskTotalCounter - taskCompleteCounter - taskSkippedCounter - taskFailedCounter}个, 执行中${taskRunningCounter}个, 已完成${taskCompleteCounter}个, 已跳过${taskSkippedCounter}个, 已失败${taskFailedCounter}个`)
         asyncRunnerConfig.state = "running"
         await asyncRunnerConfig.asyncTask()
         logger.log(`[uuid:${asyncRunnerConfig.uuid}]第${asyncRunnerConfig.taskLoopNo}轮第${asyncRunnerConfig.taskNo}个任务执行完毕`)
         taskCompleteCounter++
+        return { isSkipped: false }
       }
-      await Promise.race(
+      return await Promise.race(
         [
           asyncRunner(),
           new Promise((reslove, reject) => {
             if (needTTL) {
               // 只在需要设置超时时间时启用
               setTimeout(() => {
-                taskFailedCounter++
                 reject(new Error(`任务执行超时`))
               }, this.Const_Task_Timeout_ms)
             }
@@ -174,22 +192,48 @@ class TaskManager {
         ]
       ).then(() => {
         asyncRunnerConfig.state = "success"
-      }).catch(() => {
+      }).catch((e) => {
+        if (this.isSkipProtectedTaskError(e)) {
+          asyncRunnerConfig.state = "success"
+          taskSkippedCounter++
+          logger.log(`[uuid:${asyncRunnerConfig.uuid}]第${asyncRunnerConfig.taskLoopNo}轮第${asyncRunnerConfig.taskNo}个任务已跳过:${e.message}`)
+          return { isSkipped: true }
+        }
         asyncRunnerConfig.state = "fail"
+        taskFailedCounter++
+        taskErrorList.push(e)
+        if (this.isStopImmediatelyError(e)) {
+          logger.log(`检测到知乎风控/请求限制(status:${e?.response?.status}), 已停止继续派发任务。请先在浏览器打开知乎处理验证码，或等待一段时间后再继续。`)
+          throw e
+        }
       }).finally(() => {
         taskRunningCounter--
       })
     })
 
 
-    for await (const _ of taskPromiseList) {
-      this.globalDispatchTaskCounter++
-      // 需要保护的任务, 每次执行完毕后, 需要等待一段时间(只能暂停派发任务, 已派发的任务无法中止)
-      if (this.globalDispatchTaskCounter % this.protectConfig.perTask2Protect === 0 && needProtect === true) {
-        logger.log(`当前已累计派发${this.globalDispatchTaskCounter}个任务, 暂停派发任务${this.protectConfig.protectMs / 1000}秒, 以保护知乎服务器`)
-        await CommonUtil.asyncSleep(this.protectConfig.protectMs)
-        logger.log(`休眠完毕, 继续执行剩余任务`)
+    try {
+      for await (const result of taskPromiseList) {
+        if (result?.isSkipped === true) {
+          continue
+        }
+        this.globalDispatchTaskCounter++
+        // 需要保护的任务, 每次执行完毕后, 需要等待一段时间(只能暂停派发任务, 已派发的任务无法中止)
+        if (this.globalDispatchTaskCounter % this.protectConfig.perTask2Protect === 0 && needProtect === true) {
+          logger.log(`当前已累计派发${this.globalDispatchTaskCounter}个任务, 暂停派发任务${this.protectConfig.protectMs / 1000}秒, 以保护知乎服务器`)
+          await CommonUtil.asyncSleep(this.protectConfig.protectMs)
+          logger.log(`休眠完毕, 继续执行剩余任务`)
+        }
       }
+    } catch (e) {
+      if (this.isStopImmediatelyError(e)) {
+        logger.log(`任务已因知乎风控/请求限制立即停止, 不再继续执行剩余任务`)
+      }
+      throw e
+    }
+    if (taskErrorList.length > 0) {
+      logger.log(`任务执行失败, 失败数量:${taskErrorList.length}`)
+      throw new Error(`共有${taskErrorList.length}个任务执行失败`)
     }
     logger.log(`所有任务执行完毕`)
     return true
@@ -266,7 +310,25 @@ export default class CommonUtil {
         ...Const_TaskConfig.Const_Default_Config,
       }
     }
+    config.fetchConfig = {
+      ...Const_TaskConfig.Const_Default_Config.fetchConfig,
+      ...(config.fetchConfig ?? {}),
+    }
     return config
+  }
+
+  static sanitizeConfigForLog(config: Type_TaskConfig.Type_Task_Config) {
+    return {
+      ...config,
+      requestConfig: {
+        ...(config.requestConfig ?? {}),
+        cookie: config.requestConfig?.cookie ? '[已隐藏cookie]' : '',
+      },
+    }
+  }
+
+  static isResumeFetchMode() {
+    return CommonUtil.getConfig().fetchConfig?.mode !== Const_TaskConfig.Const_Fetch_Mode_从头抓取
   }
 
   static saveConfig(config: Type_TaskConfig.Type_Task_Config) {

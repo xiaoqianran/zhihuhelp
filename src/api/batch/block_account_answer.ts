@@ -3,12 +3,16 @@ import MAuthor from '~/src/model/author'
 import Base from '~/src/api/batch/base'
 import BatchFetchAnswer from '~/src/api/batch/answer'
 import CommonUtil from '~/src/library/util/common'
+import lodash from 'lodash'
 
 class BatchFetchAuthorAnswer extends Base {
   async fetch(urlToken: string) {
     this.log(`开始抓取用户${urlToken}的数据`)
     this.log(`获取用户信息`)
     const authorInfo = await AuthorApi.asyncGetBlockAccountAutherInfo(urlToken)
+    if (lodash.isEmpty(authorInfo)) {
+      throw new Error(`销号用户${urlToken}信息抓取失败: 接口返回空数据`)
+    }
     await MAuthor.asyncReplaceAuthor(authorInfo)
     this.log(`用户信息获取完毕`)
     const name = authorInfo.name

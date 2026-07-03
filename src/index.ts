@@ -2,6 +2,7 @@
 import Electron, { Menu } from 'electron'
 import RequestConfig from '~/src/config/request'
 import PathConfig from '~/src/config/path'
+import CommonConfig from '~/src/config/common'
 import CommonUtil from '~/src/library/util/common'
 import Logger from '~/src/library/logger'
 import { Ignitor } from '@adonisjs/core/build/standalone'
@@ -27,6 +28,20 @@ let ace = new Ignitor(Const_Current_Path).ace()
 let argv = process.argv
 let isDebug = argv.includes('--zhihuhelp-debug')
 let { app, BrowserWindow, ipcMain, session, shell } = Electron
+
+const gotSingleInstanceLock = app.requestSingleInstanceLock()
+if (!gotSingleInstanceLock) {
+  app.quit()
+  process.exit(0)
+}
+
+process.on('uncaughtException', (e) => {
+  Logger.log(`主进程未捕获异常=> message:${e?.message}, stack=>${e?.stack}`)
+})
+process.on('unhandledRejection', (reason) => {
+  Logger.log(`主进程未处理Promise异常=>`, reason)
+})
+
 // Keep a global reference of the window object, if you don't, the window will
 // be closed automatically when the JavaScript object is garbage collected.
 let mainWindow: Electron.BrowserWindow
@@ -34,6 +49,11 @@ let mainWindow: Electron.BrowserWindow
 let jsRpcWindow: Electron.BrowserWindow
 
 let isRunning = false
+let isJsRpcReady = false
+let resolveJsRpcReady: () => void = () => { }
+let jsRpcReadyPromise = new Promise<void>((resolve) => {
+  resolveJsRpcReady = resolve
+})
 
 const isMacOS = process.platform === 'darwin'
 
@@ -111,12 +131,22 @@ async function asyncCreateWindow() {
       // 禁用同源策略, 允许加载任何来源的js
       webSecurity: false,
       // // js-rpc需要
-      // contextIsolation: true,
+      contextIsolation: true,
+      sandbox: false,
       // 启用webview标签
       webviewTag: true,
       // 启用preload.js, 以进行rpc通信
       preload: path.join(__dirname, 'public', 'js-rpc', 'preload.js'),
     },
+  })
+  jsRpcWindow.webContents.on('did-finish-load', () => {
+    Logger.log(`js-rpc签名窗口页面加载完毕`)
+  })
+  jsRpcWindow.webContents.on('did-fail-load', (_event, errorCode, errorDescription, validatedURL) => {
+    Logger.log(`js-rpc签名窗口页面加载失败:${errorCode}, ${errorDescription}, ${validatedURL}`)
+  })
+  jsRpcWindow.webContents.on('render-process-gone', (_event, details) => {
+    Logger.log(`js-rpc签名窗口渲染进程退出:${JSON.stringify(details)}`)
   })
 
   // and load the index.html of the app.
@@ -132,15 +162,9 @@ async function asyncCreateWindow() {
       // 默认加载已构建页面, 避免 preload 在 dev server 下失效
       mainWindow.loadFile(path.resolve(__dirname, 'client', 'index.html'))
     }
-    mainWindow.webContents.openDevTools()
 
     let jsRpcUri = path.resolve(__dirname, 'public', 'js-rpc', 'index.html')
-    if (isMacOS) {
-      // mac上载入url时必须明确指明协议, 否则无法载入
-      jsRpcUri = "file://" + jsRpcUri
-    }
-    jsRpcWindow.loadURL(jsRpcUri)
-    jsRpcWindow.webContents.openDevTools()
+    jsRpcWindow.loadFile(jsRpcUri)
   } else {
     // 线上地址
     // 构建出来后所有文件都位于dist目录中
@@ -156,11 +180,7 @@ async function asyncCreateWindow() {
     // mainWindow.webContents.openDevTools()
 
     let jsRpcUri = path.resolve(__dirname, 'public', 'js-rpc', 'index.html')
-    if (isMacOS) {
-      // mac上载入url时必须明确指明协议, 否则无法载入
-      jsRpcUri = "file://" + jsRpcUri
-    }
-    jsRpcWindow.loadURL(jsRpcUri)
+    jsRpcWindow.loadFile(jsRpcUri)
     // jsRpcWindow.webContents.openDevTools()
   }
 
@@ -187,6 +207,10 @@ async function asyncCreateWindow() {
 
 // webview 内知乎登录弹窗会在新窗口打开, 需要拦截后在本 webview 内跳转
 app.on('web-contents-created', (_event, contents) => {
+  contents.on('render-process-gone', (_event, details) => {
+    Logger.log(`渲染进程退出=> type:${contents.getType()}, url:${contents.getURL()}, details:${JSON.stringify(details)}`)
+  })
+
   if (contents.getType() !== 'webview') {
     return
   }
@@ -194,6 +218,10 @@ app.on('web-contents-created', (_event, contents) => {
     contents.loadURL(url)
     return { action: 'deny' }
   })
+})
+
+app.on('child-process-gone', (_event, details) => {
+  Logger.log(`Electron子进程退出=> ${JSON.stringify(details)}`)
 })
 
 async function asyncUpdateCookie() {
@@ -209,6 +237,50 @@ async function asyncUpdateCookie() {
   Logger.log(`重新载入cookie配置`)
   RequestConfig.reloadTaskConfig()
   return config
+}
+
+async function asyncGetZhihuLoginStatus() {
+  await asyncUpdateCookie()
+
+  const zhihuCookieList = await session.defaultSession.cookies.get({})
+  const zhihuCookieNameList = zhihuCookieList
+    .filter((cookie) => {
+      const domain = cookie.domain || ''
+      return domain === 'zhihu.com' || domain.endsWith('.zhihu.com')
+    })
+    .map((cookie) => cookie.name)
+
+  return {
+    isLogin: zhihuCookieNameList.includes('z_c0'),
+    cookieNameList: zhihuCookieNameList,
+  }
+}
+
+function asyncTimeout<T>(promise: Promise<T>, timeoutMs: number, message: string): Promise<T> {
+  return new Promise((resolve, reject) => {
+    const timer = setTimeout(() => {
+      reject(new Error(message))
+    }, timeoutMs)
+    promise
+      .then((value) => {
+        clearTimeout(timer)
+        resolve(value)
+      })
+      .catch((e) => {
+        clearTimeout(timer)
+        reject(e)
+      })
+  })
+}
+
+async function asyncRunAceCommand(command: string) {
+  ; (global as any).__zhihuhelp_last_command_error = null
+  await ace.handle([command])
+  const commandError = (global as any).__zhihuhelp_last_command_error
+  if (commandError) {
+    ; (global as any).__zhihuhelp_last_command_error = null
+    throw commandError
+  }
 }
 
 // This method will be called when Electron has finished
@@ -234,7 +306,6 @@ app.on('activate', function () {
 app.whenReady().then(() => {
   // 打开输出文件夹
   ipcMain.handle('open-output-dir', async () => {
-    console.log("PathConfig.outputPath => ", PathConfig.outputPath)
     shell.showItemInFolder(PathConfig.outputPath)
     return
   })
@@ -245,42 +316,57 @@ app.whenReady().then(() => {
     return config
   })
 
+  // 检查知乎登录状态
+  ipcMain.handle('get-zhihu-login-status', async () => {
+    return asyncGetZhihuLoginStatus()
+  })
+
   // 启动任务
   ipcMain.handle('start-customer-task', async (event, { config }: { config: Type_TaskConfig.Type_Task_Config }) => {
     if (isRunning) {
       return '目前尚有任务执行, 请稍后'
     }
     isRunning = true
-    Logger.log('开始工作')
+    try {
+      Logger.log('开始工作')
 
-    // 将配置写入本地
-    await asyncUpdateCookie()
-    let oldConfig = CommonUtil.getConfig()
-    console.log("oldConfig => ", oldConfig)
-    config.requestConfig.cookie = oldConfig.requestConfig.cookie
-    console.log("config => ", config)
-    config.requestConfig.ua = oldConfig.requestConfig.ua
-    CommonUtil.saveConfig(config)
+      // 将配置写入本地
+      await asyncUpdateCookie()
+      let oldConfig = CommonUtil.getConfig()
+      config.requestConfig.cookie = oldConfig.requestConfig.cookie
+      config.requestConfig.ua = oldConfig.requestConfig.ua
+      config.fetchConfig = {
+        ...oldConfig.fetchConfig,
+        ...config.fetchConfig,
+      }
+      if ((config.fetchTaskList ?? []).length === 0) {
+        throw new Error(`任务配置为空, 未解析到任何可抓取的知乎链接`)
+      }
+      CommonUtil.saveConfig(config)
 
-    Logger.log(`开始执行任务`)
+      Logger.log(`开始执行任务`)
+      Logger.log(`当前抓取方式:${config.fetchConfig?.mode === 'restart' ? '从头抓取' : '继续上次'}`)
 
-    // 此后操作均为异步操作, 无需等待
+      Logger.log(`初始化ace命令集`)
+      await ace.handle(['generate:manifest'])
+      Logger.log(`初始化运行环境`)
+      await asyncRunAceCommand('Init:Env')
 
-    Logger.log(`初始化ace命令集`)
-    await ace.handle(['generate:manifest'])
-    Logger.log(`初始化运行环境`)
-    await ace.handle(['Init:Env'])
-
-    Logger.log(`开始抓取数据`)
-    await ace.handle(['Fetch:Customer'])
-    Logger.log(`开始生成电子书`)
-    await ace.handle(['Generate:Customer'])
-    Logger.log(`所有任务执行完毕, 打开电子书文件夹 => `, PathConfig.outputPath)
-    // 输出打开文件夹
-    shell.showItemInFolder(PathConfig.outputPath)
-    isRunning = false
-
-    return 'success'
+      Logger.log(`开始抓取数据`)
+      await asyncRunAceCommand('Fetch:Customer')
+      Logger.log(`开始生成电子书`)
+      await asyncRunAceCommand('Generate:Customer')
+      Logger.log(`所有任务执行完毕, 打开电子书文件夹 => `, PathConfig.outputPath)
+      // 输出打开文件夹
+      shell.showItemInFolder(PathConfig.outputPath)
+      return 'success'
+    } catch (e: any) {
+      Logger.log(`任务执行失败, 已停止后续生成步骤`)
+      Logger.log(`失败原因=> message:${e?.message}, stack=>${e?.stack}`)
+      return `failed: ${e?.message ?? e}`
+    } finally {
+      isRunning = false
+    }
   })
 
 
@@ -324,6 +410,10 @@ app.whenReady().then(() => {
   let totalTaskCounter = 0
 
   async function asyncJsRpcTriggerFunc({ method, paramList }: { method: string; paramList: any[] }) {
+    if (isJsRpcReady === false) {
+      Logger.log(`等待js-rpc签名窗口初始化`)
+      await asyncTimeout(jsRpcReadyPromise, CommonConfig.request_timeout_ms, `js-rpc签名窗口初始化超时`)
+    }
     totalTaskCounter++
     let id = `task-${totalTaskCounter}-${Math.random()}`
     let task = new Promise((reslove) => {
@@ -349,7 +439,11 @@ app.whenReady().then(() => {
       //   )}`,
       // )
     }
-    let result = await task
+    let result = await asyncTimeout(task, CommonConfig.request_timeout_ms, `js-rpc签名请求超时:${id}`)
+      .catch((e) => {
+        taskMap.delete(id)
+        throw e
+      })
     if (isDebug) {
       // Logger.log(`id:${id}的js-rpc请求完成`)
     }
@@ -374,6 +468,15 @@ app.whenReady().then(() => {
       Logger.log(`未找到${id}对应的任务`)
     }
 
+    return true
+  })
+
+  ipcMain.handle('js-rpc-ready', async () => {
+    if (isJsRpcReady === false) {
+      Logger.log(`js-rpc签名窗口初始化完毕`)
+    }
+    isJsRpcReady = true
+    resolveJsRpcReady()
     return true
   })
 

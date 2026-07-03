@@ -129,6 +129,7 @@ export default () => {
     form.setFieldValue('bookTitle', initValue.bookTitle)
     form.setFieldValue('taskItemList', initValue.taskItemList)
     form.setFieldValue('orderItemList', initValue.orderItemList)
+    form.setFieldValue('fetchMode', initValue.fetchMode)
     form.setFieldValue('imageQuilty', initValue.imageQuilty)
     form.setFieldValue('maxItemInBook', initValue.maxItemInBook)
     form.setFieldValue('comment', initValue.comment)
@@ -143,10 +144,19 @@ export default () => {
     asyncOnFinish: async (values: any) => {
       statusStore.loading.startTask = true
       // 提交数据, 生成配置文件
-      console.log('final config => ', JSON.stringify(values, null, 2))
       const config = Util.generateTaskConfig(values)
+      if (config.fetchTaskList.length === 0) {
+        statusStore.loading.startTask = false
+        SimpleModal.warning({
+          title: '任务配置为空',
+          content: '没有解析到可抓取的知乎链接，请检查任务 URL 是否填写正确',
+          okText: '知道了',
+        })
+        return
+      }
       let isLogin = await handleFormAction.asyncCheckLogin()
       if (isLogin === false) {
+        statusStore.loading.startTask = false
         SimpleModal.warning({
           title: '登录状态异常',
           content: '请先登录知乎账号后再启动任务',
@@ -166,25 +176,8 @@ export default () => {
       setCurrentTab(Consts_Page.Const_Page_运行日志)
     },
     asyncCheckLogin: async () => {
-      console.log('check login')
-      let res = await window.electronAPI['zhihu-http-get']({
-        url: 'https://www.zhihu.com/api/v4/members/s.invalid/answers',
-        params: {
-          include:
-            'data[*].is_normal,admin_closed_comment,reward_info,is_collapsed,annotation_action,annotation_detail,collapse_reason,collapsed_by,suggest_edit,comment_count,can_comment,content,editable_content,attachment,voteup_count,reshipment_settings,comment_permission,mark_infos,created_time,updated_time,review_info,excerpt,is_labeled,label_info,relationship.is_authorized,voting,is_author,is_thanked,is_nothelp,is_recognized;data[*].vessay_info;data[*].author.badge[?(type=best_answerer)].topics;data[*].author.vip_info;data[*].question.has_publishing_draft,relationship',
-          offset: 0,
-          limit: 20,
-          sort_by: 'created',
-          // 避免请求被缓存住
-          random: Math.floor(Math.random() * 100000),
-        },
-      })
-      console.log('res => ', res)
-      if (res.data !== undefined) {
-        return true
-      } else {
-        return false
-      }
+      let res = await window.electronAPI['get-zhihu-login-status']()
+      return res.isLogin
     },
   }
 
@@ -348,6 +341,18 @@ export default () => {
               })
             }}
           </Form.List>
+          <Form.Item
+            name="fetchMode"
+            label="抓取方式"
+            labelCol={{
+              span: 3,
+            }}
+          >
+            <Radio.Group buttonStyle="solid">
+              <Radio.Button value={Consts_Task_Config.Const_Fetch_Mode_继续上次}>继续上次</Radio.Button>
+              <Radio.Button value={Consts_Task_Config.Const_Fetch_Mode_从头抓取}>从头抓取</Radio.Button>
+            </Radio.Group>
+          </Form.Item>
           <Form.Item
             name="imageQuilty"
             label="图片质量"

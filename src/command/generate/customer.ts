@@ -61,6 +61,8 @@ type EpubResourcePackage = {
   pinList: TypePin.Record[]
 }
 
+const Const_Max_Record_In_Epub_Html = 50
+
 class GenerateCustomer extends Base {
   public static commandName = 'Generate:Customer'
   public static description = `输出自定义电子书`
@@ -68,8 +70,8 @@ class GenerateCustomer extends Base {
   async execute(): Promise<any> {
     this.log(`从${PathConfig.configUri}中读取配置文件`)
     let fetchConfigJSON = fs.readFileSync(PathConfig.configUri).toString()
-    this.log('content =>', fetchConfigJSON)
     let customerTaskConfig: TypeTaskConfig.Type_Task_Config = json5.parse(fetchConfigJSON)
+    this.log('content =>', CommonUtil.sanitizeConfigForLog(customerTaskConfig))
 
     let generateConfig = customerTaskConfig.generateConfig
     let fetchTaskList = customerTaskConfig.fetchTaskList
@@ -1062,6 +1064,8 @@ class GenerateCustomer extends Base {
     imageQuilty: TypeTaskConfig.Type_Image_Quilty
     epubColumn: Package.Ebook_Column
   }) {
+    this.validateEpubColumn(epubColumn)
+
     // 初始化资源, 重置所有静态类变量
 
     let epubGenerator = new EpubGenerator({ bookname: epubColumn.bookname, imageQuilty })
@@ -1086,18 +1090,26 @@ class GenerateCustomer extends Base {
       }
       // 生成内容页
       for (let page of unit.pageList) {
-        let { filename, title, html, ele4SinglePage: pageEle4SinglePage } = this.generatePageHtml(page)
-        ele4SinglePageList.push(pageEle4SinglePage)
-        let uri = epubGenerator.addHtml({
-          filename,
-          title,
-          html,
-        })
-        let pageRecord: Type_Index_Record['pageList'][number] = {
-          title: title,
-          uri: uri,
+        let splitPageList = this.splitPageForEpubHtml(page)
+        for (let pageIndex = 0; pageIndex < splitPageList.length; pageIndex++) {
+          let splitPage = splitPageList[pageIndex]
+          let { filename, title, html, ele4SinglePage: pageEle4SinglePage } = this.generatePageHtml(splitPage)
+          if (splitPageList.length > 1) {
+            filename = `${filename}_part_${pageIndex + 1}`
+            title = `${title} (${pageIndex + 1}/${splitPageList.length})`
+          }
+          ele4SinglePageList.push(pageEle4SinglePage)
+          let uri = epubGenerator.addHtml({
+            filename,
+            title,
+            html,
+          })
+          let pageRecord: Type_Index_Record['pageList'][number] = {
+            title: title,
+            uri: uri,
+          }
+          unitRecord.pageList.push(pageRecord)
         }
-        unitRecord.pageList.push(pageRecord)
       }
       indexRecordList.push(unitRecord)
     }
@@ -1116,6 +1128,53 @@ class GenerateCustomer extends Base {
     await epubGenerator.asyncGenerateEpub()
 
     this.log(`自定义电子书${epubColumn.bookname}生成完毕`)
+  }
+
+  private validateEpubColumn(epubColumn: Package.Ebook_Column) {
+    let pageCount = 0
+    let recordCount = 0
+    for (let unit of epubColumn.unitList) {
+      pageCount = pageCount + unit.pageList.length
+      for (let page of unit.pageList) {
+        recordCount = recordCount + page.getItemCount()
+        if (page.type !== Consts.Const_Type_Question) {
+          continue
+        }
+        let questionPage = page as Package.Page_Question
+        let expectedAnswerCount = questionPage.baseInfo?.answer_count ?? 0
+        let actualAnswerCount = questionPage.getItemCount()
+        let missingAnswerCount = expectedAnswerCount - actualAnswerCount
+        let toleratedMissingCount = Math.max(5, Math.ceil(expectedAnswerCount * 0.05))
+        if (expectedAnswerCount > 0 && missingAnswerCount > toleratedMissingCount) {
+          throw new Error(
+            `问题${questionPage.baseInfo?.id}抓取不完整, 数据库中只有${actualAnswerCount}/${expectedAnswerCount}个回答, 已停止生成电子书。请先继续上次抓取或从头抓取。`,
+          )
+        }
+        if (expectedAnswerCount > 0 && missingAnswerCount > 0) {
+          this.log(
+            `问题${questionPage.baseInfo?.id}回答数量与知乎记录不完全一致: 数据库${actualAnswerCount}/${expectedAnswerCount}, 差距较小, 继续生成`,
+          )
+        }
+      }
+    }
+    this.log(`电子书内容统计: 单元${epubColumn.unitList.length}个, 内容页${pageCount}页, 记录${recordCount}条`)
+    if (epubColumn.unitList.length === 0 || pageCount === 0 || recordCount === 0) {
+      throw new Error(`电子书${epubColumn.bookname}没有可输出内容, 已停止生成`)
+    }
+  }
+
+  private splitPageForEpubHtml(page: Package.Type_Page_Item): Package.Type_Page_Item[] {
+    if (page.type !== Consts.Const_Type_Question || page.getItemCount() <= Const_Max_Record_In_Epub_Html) {
+      return [page]
+    }
+    let result: Package.Type_Page_Item[] = []
+    for (let start = 0; start < page.getItemCount(); start = start + Const_Max_Record_In_Epub_Html) {
+      result.push(page.slice(start, start + Const_Max_Record_In_Epub_Html))
+    }
+    this.log(
+      `问题${(page as Package.Page_Question).baseInfo?.id}回答较多, 已拆分为${result.length}个EPUB内容页`,
+    )
+    return result
   }
 }
 
