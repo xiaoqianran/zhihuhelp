@@ -33,6 +33,12 @@ let argv = process.argv
 let isDebug = argv.includes('--zhihuhelp-debug')
 let { app, BrowserWindow, ipcMain, session, shell } = Electron
 
+// Windows 启动优化开关（减少不必要特性带来的延迟）
+// 这些对普通 GUI 应用通常是安全的
+app.commandLine.appendSwitch('disable-background-timer-throttling')
+app.commandLine.appendSwitch('disable-renderer-backgrounding')
+app.commandLine.appendSwitch('disable-backgrounding-occluded-windows')
+
 const gotSingleInstanceLock = app.requestSingleInstanceLock()
 if (!gotSingleInstanceLock) {
   app.quit()
@@ -69,6 +75,58 @@ let resolveJsRpcReady: () => void = () => { }
 let jsRpcReadyPromise = new Promise<void>((resolve) => {
   resolveJsRpcReady = resolve
 })
+
+// 按需创建 js-rpc 签名窗口（lazy）。首次需要签名时才真正创建第二个 BrowserWindow，
+// 显著减少普通启动时的内存和 CPU 开销（用户打开应用看历史数据或配任务时不需要它）。
+function ensureJsRpcWindow() {
+  if (jsRpcWindow && !jsRpcWindow.isDestroyed()) {
+    return jsRpcWindow
+  }
+
+  // 重置 ready 状态（万一之前窗口被关闭）
+  isJsRpcReady = false
+  jsRpcReadyPromise = new Promise<void>((resolve) => {
+    resolveJsRpcReady = resolve
+  })
+
+  jsRpcWindow = new BrowserWindow({
+    enableLargerThanScreen: true,
+    width: 760,
+    height: 500,
+    // 后台签名窗口，彻底隐藏
+    show: false,
+    skipTaskbar: true,
+    // 禁用web安全功能 --> 个人软件
+    webPreferences: {
+      devTools: true,
+      webSecurity: false,
+      contextIsolation: true,
+      sandbox: false,
+      webviewTag: true,
+      preload: path.join(app.getAppPath(), 'dist', 'public', 'js-rpc', 'preload.js'),
+    },
+  })
+  jsRpcWindow.webContents.on('did-finish-load', () => {
+    Logger.log(`js-rpc签名窗口页面加载完毕`)
+  })
+  jsRpcWindow.webContents.on('did-fail-load', (_event, errorCode, errorDescription, validatedURL) => {
+    Logger.log(`js-rpc签名窗口页面加载失败:${errorCode}, ${errorDescription}, ${validatedURL}`)
+  })
+  jsRpcWindow.webContents.on('render-process-gone', (_event, details) => {
+    Logger.log(`js-rpc签名窗口渲染进程退出:${JSON.stringify(details)}`)
+  })
+
+  const jsRpcUri = getJsRpcIndexPathForLazy() // defined later in scope, fallback
+  // Because the helper may not be hoisted, we compute here
+  const jsRpcPath = path.join(app.getAppPath(), 'dist', 'public', 'js-rpc', 'index.html')
+  jsRpcWindow.loadFile(jsRpcPath)
+  return jsRpcWindow
+}
+
+// small helper for path (avoid TDZ issues)
+function getJsRpcIndexPathForLazy() {
+  return path.join(app.getAppPath(), 'dist', 'public', 'js-rpc', 'index.html')
+}
 
 const isMacOS = process.platform === 'darwin'
 
@@ -114,6 +172,9 @@ async function asyncCreateWindow() {
     center: true,
     // 展示原生窗口栏
     frame: true,
+    // 关键：先不 show，避免白屏闪烁，等内容准备好再显示
+    show: false,
+    backgroundColor: '#ffffff',
     // 禁用web安全功能 --> 个人软件, 要啥自行车
     webPreferences: {
       // 使用preload.js, 以进行rpc通信
@@ -132,37 +193,10 @@ async function asyncCreateWindow() {
       webviewTag: true,
     },
   })
-  // 专门启动一个窗口, 用于通过jsRpc计算签名
-  jsRpcWindow = new BrowserWindow({
-    enableLargerThanScreen: true,
-    width: 760,
-    height: 500,
-    // 负责渲染的子窗口不需要显示出来, 避免被用户误关闭
-    show: isDebug ? true : false,
-    // 禁用web安全功能 --> 个人软件, 要啥自行车
-    webPreferences: {
-      // 开启 DevTools.
-      devTools: true,
-      // 禁用同源策略, 允许加载任何来源的js
-      webSecurity: false,
-      // // js-rpc需要
-      contextIsolation: true,
-      sandbox: false,
-      // 启用webview标签
-      webviewTag: true,
-      // 启用preload.js, 以进行rpc通信
-      preload: path.join(app.getAppPath(), 'dist', 'public', 'js-rpc', 'preload.js'),
-    },
-  })
-  jsRpcWindow.webContents.on('did-finish-load', () => {
-    Logger.log(`js-rpc签名窗口页面加载完毕`)
-  })
-  jsRpcWindow.webContents.on('did-fail-load', (_event, errorCode, errorDescription, validatedURL) => {
-    Logger.log(`js-rpc签名窗口页面加载失败:${errorCode}, ${errorDescription}, ${validatedURL}`)
-  })
-  jsRpcWindow.webContents.on('render-process-gone', (_event, details) => {
-    Logger.log(`js-rpc签名窗口渲染进程退出:${JSON.stringify(details)}`)
-  })
+
+  // js-rpc 签名窗口现在按需（lazy）创建 —— 大幅提升首屏启动速度。
+  // 只有真正开始执行抓取任务、需要签名时才创建第二个渲染进程。
+  // 见 ensureJsRpcWindow() 和 asyncJsRpcTriggerFunc。
 
   // Robust path helpers. Use app.getAppPath() so it works reliably in:
   // - `electron dist/index.js` (dev after build)
@@ -172,7 +206,6 @@ async function asyncCreateWindow() {
   const getClientIndexPath = () => path.join(appRoot, 'dist', 'client', 'index.html')
   const getJsRpcIndexPath = () => path.join(appRoot, 'dist', 'public', 'js-rpc', 'index.html')
 
-  // and load the index.html of the app.
   // and load the index.html of the app.
   if (isDebug) {
     // 本地调试 & 打开控制台
@@ -187,8 +220,6 @@ async function asyncCreateWindow() {
       Logger.log(`[debug] 加载客户端页面: ${clientPath}`)
       mainWindow.loadFile(clientPath)
     }
-
-    jsRpcWindow.loadFile(getJsRpcIndexPath())
   } else {
     // 线上地址
     // 构建出来后所有文件都位于dist目录中
@@ -197,18 +228,23 @@ async function asyncCreateWindow() {
     mainWindow.loadFile(clientPath)
 
     // mainWindow.webContents.openDevTools()
-
-    jsRpcWindow.loadFile(getJsRpcIndexPath())
-    // jsRpcWindow.webContents.openDevTools()
   }
 
   // Log load failures (main cause of white screen if index.html or assets missing after bad build)
+  // 失败时加载一个极简的错误页，用户仍可点按钮打开调试面板
   mainWindow.webContents.on('did-fail-load', (_event, errorCode, errorDescription, validatedURL) => {
     Logger.log(`[主窗口] 页面加载失败: code=${errorCode}, desc=${errorDescription}, url=${validatedURL}`)
     Logger.log(`[主窗口] 期望的index.html路径: ${getClientIndexPath()}`)
+    const errHtml = `<!doctype html><meta charset="utf-8"><style>body{font-family:sans-serif;padding:40px;color:#333;background:#fff} button{padding:8px 16px;margin-top:12px}</style><h2>界面加载失败</h2><p>路径: ${validatedURL || 'unknown'}</p><p>错误: ${errorDescription || errorCode}</p><button onclick="window.electronAPI && window.electronAPI['open-devtools']()">打开调试面板</button>`
+    mainWindow.loadURL('data:text/html;charset=utf-8,' + encodeURIComponent(errHtml))
   })
   mainWindow.webContents.on('did-finish-load', () => {
     Logger.log(`[主窗口] 页面加载完成`)
+    // 内容就绪后显示窗口（配合 show:false + backgroundColor 减少白屏感知）
+    if (mainWindow && !mainWindow.isVisible()) {
+      mainWindow.show()
+      mainWindow.focus()
+    }
   })
 
   // Emitted when the window is closed.
@@ -218,8 +254,10 @@ async function asyncCreateWindow() {
     // when you should delete the corresponding element.
     // @ts-ignore
     mainWindow = null
-    // 主窗口关闭时, 子窗口也要跟着关闭, 避免程序退不掉
-    jsRpcWindow.close()
+    // 主窗口关闭时, 如果 js-rpc 子窗口存在也要跟着关闭
+    if (jsRpcWindow && !jsRpcWindow.isDestroyed()) {
+      jsRpcWindow.close()
+    }
     // @ts-ignore
     jsRpcWindow = null
   })
@@ -329,15 +367,16 @@ app.on('activate', function () {
 
 // Single place for window + handler registration. Using whenReady is the modern pattern.
 app.whenReady().then(() => {
-  // Create main + js-rpc windows as early as possible on ready
+  // Create main window (js-rpc is now lazy)
   asyncCreateWindow()
 
-  // Attach a ready-to-show to ensure the window becomes visible promptly (helps perceived launch on Windows)
-  // Note: we didn't set show:false on create, but this is defensive.
+  // 额外兜底：如果 ready-to-show 比 did-finish-load 更早触发，也确保显示
   if (mainWindow) {
     mainWindow.once('ready-to-show', () => {
-      if (!mainWindow.isVisible()) mainWindow.show()
-      mainWindow.focus()
+      if (mainWindow && !mainWindow.isVisible()) {
+        mainWindow.show()
+        mainWindow.focus()
+      }
     })
   }
 
@@ -447,6 +486,9 @@ app.whenReady().then(() => {
   let totalTaskCounter = 0
 
   async function asyncJsRpcTriggerFunc({ method, paramList }: { method: string; paramList: any[] }) {
+    // 关键优化：按需确保 js-rpc 窗口存在（首次抓取时才真正创建）
+    ensureJsRpcWindow()
+
     if (isJsRpcReady === false) {
       Logger.log(`等待js-rpc签名窗口初始化`)
       await asyncTimeout(jsRpcReadyPromise, CommonConfig.request_timeout_ms, `js-rpc签名窗口初始化超时`)
@@ -454,6 +496,10 @@ app.whenReady().then(() => {
     totalTaskCounter++
     let id = `task-${totalTaskCounter}-${Math.random()}`
     let task = new Promise((reslove) => {
+      // 防御：如果窗口被意外销毁再确保一次
+      if (!jsRpcWindow || jsRpcWindow.isDestroyed()) {
+        ensureJsRpcWindow()
+      }
       jsRpcWindow.webContents.send(method, paramList, id)
       taskMap.set(id, {
         method,
@@ -560,11 +606,10 @@ app.whenReady().then(() => {
     return true
   })
   ipcMain.handle('open-js-rpc-window-devtools', async (event) => {
-    // 打开jsRpcWindow调试面板
-    if (jsRpcWindow) {
-      jsRpcWindow.show()
-      jsRpcWindow.webContents.openDevTools()
-    }
+    // 打开jsRpcWindow调试面板（按需创建）
+    const w = ensureJsRpcWindow()
+    w.show()
+    w.webContents.openDevTools()
     return true
   })
 })

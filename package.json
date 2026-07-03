@@ -46,7 +46,11 @@
     "files": [
       "dist/**/*",
       "!**/*.map",
-      "node_modules/**/*"
+      "!**/*.{md,markdown,MD,LICENSE}",
+      "node_modules/**/*",
+      "!node_modules/**/{test,tests,example,examples,doc,docs}/**",
+      "!node_modules/**/.*",
+      "!node_modules/**/{CHANGELOG*,HISTORY*,README*,readme*,*.test.*,*.spec.*}"
     ],
     "win": {
       "target": [
