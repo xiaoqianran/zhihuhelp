@@ -34,7 +34,7 @@
     "copyright": "@姚泽源",
     "npmRebuild": false,
     "buildDependenciesFromSource": false,
-    "asar": true,
+    "asar": false,
     "asarUnpack": [
       "**/node_modules/sqlite3/**",
       "**/node_modules/sharp/**",
