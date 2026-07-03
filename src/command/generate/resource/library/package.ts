@@ -102,12 +102,20 @@ interface Interface_Base_Page_Item {
 export class Page_Question implements Interface_Base_Page_Item {
   readonly type: Type_Item_Question = Consts.Const_Type_Question
   baseInfo: Type_Answer.Question
+  shouldValidateAnswerCompleteness = false
   recordList: Type_Record_Item_Answer[] = []
   // 维护一个带有所有id的结构, 避免重复添加
   existRecordIdMap: Set<string> = new Set()
 
-  constructor({ baseInfo }: { baseInfo: Type_Answer.Question }) {
+  constructor({
+    baseInfo,
+    shouldValidateAnswerCompleteness = false,
+  }: {
+    baseInfo: Type_Answer.Question
+    shouldValidateAnswerCompleteness?: boolean
+  }) {
     this.baseInfo = baseInfo
+    this.shouldValidateAnswerCompleteness = shouldValidateAnswerCompleteness
   }
 
   /**
@@ -182,7 +190,10 @@ export class Page_Question implements Interface_Base_Page_Item {
     }
     const recordList = this.recordList.slice(start, end)
 
-    const newPageItem = new Page_Question({ baseInfo: this.baseInfo })
+    const newPageItem = new Page_Question({
+      baseInfo: this.baseInfo,
+      shouldValidateAnswerCompleteness: this.shouldValidateAnswerCompleteness,
+    })
     for (const record of recordList) {
       newPageItem.add(record)
     }

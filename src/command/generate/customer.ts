@@ -269,6 +269,7 @@ class GenerateCustomer extends Base {
                 let questionInfo = answerListInAuthorAskQuestion[0]?.question
                 let page = new Package.Page_Question({
                   baseInfo: questionInfo,
+                  shouldValidateAnswerCompleteness: true,
                 })
                 for (let record of answerListInAuthorAskQuestion) {
                   page.add({
@@ -588,6 +589,7 @@ class GenerateCustomer extends Base {
         let questionInfo = answerListInQuestion[0]?.question
         let page = new Package.Page_Question({
           baseInfo: questionInfo,
+          shouldValidateAnswerCompleteness: true,
         })
         for (let answer of answerListInQuestion) {
           page.add({
@@ -1141,6 +1143,9 @@ class GenerateCustomer extends Base {
           continue
         }
         let questionPage = page as Package.Page_Question
+        if (questionPage.shouldValidateAnswerCompleteness !== true) {
+          continue
+        }
         let expectedAnswerCount = questionPage.baseInfo?.answer_count ?? 0
         let actualAnswerCount = questionPage.getItemCount()
         let missingAnswerCount = expectedAnswerCount - actualAnswerCount
