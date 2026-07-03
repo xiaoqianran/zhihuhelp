@@ -3,12 +3,16 @@ import path from 'path'
 import fs from 'fs'
 import JSON5 from 'json5'
 
-// 项目初始化时, 自动生成 .adonisrc.json 文件
+// 项目初始化时, 自动生成 .adonisrc.json 文件（asar 打包后目录只读时忽略写入失败）
 const adonisRcUri = path.resolve(__dirname, '.adonisrc.json')
 const adonisRcTemplateUri = path.resolve(__dirname, 'adonisrc.json')
 const adonisRcContent = fs.readFileSync(adonisRcTemplateUri).toString()
 const adonisRcConfig = JSON5.parse(adonisRcContent)
-fs.writeFileSync(adonisRcUri, JSON.stringify(adonisRcConfig, null, 2))
+try {
+  fs.writeFileSync(adonisRcUri, JSON.stringify(adonisRcConfig, null, 2))
+} catch (e) {
+  // 忽略（asar readonly 场景）
+}
 
 async function asyncRunner() {
     let currentPath = path.resolve(__dirname)

@@ -16,12 +16,16 @@ import path from 'path'
 import JSON5 from 'json5'
 
 
-// 项目初始化时, 自动生成 .adonisrc.json 文件
+// 项目初始化时, 自动生成 .adonisrc.json 文件（打包后可能位于asar内只读，失败时忽略）
 const adonisRcUri = path.resolve(__dirname, '.adonisrc.json')
 const adonisRcTemplateUri = path.resolve(__dirname, 'adonisrc.json')
 const adonisRcContent = fs.readFileSync(adonisRcTemplateUri).toString()
 const adonisRcConfig = JSON5.parse(adonisRcContent)
-fs.writeFileSync(adonisRcUri, JSON.stringify(adonisRcConfig, null, 2))
+try {
+  fs.writeFileSync(adonisRcUri, JSON.stringify(adonisRcConfig, null, 2))
+} catch (e) {
+  // asar true 情况下第一次可能无法写入（只读），后续运行如果已存在于解包位置则可工作
+}
 
 const Const_Current_Path = path.resolve(__dirname)
 let ace = new Ignitor(Const_Current_Path).ace()
@@ -34,6 +38,17 @@ if (!gotSingleInstanceLock) {
   app.quit()
   process.exit(0)
 }
+
+// Handle second instance launch attempts (e.g. user double-clicks exe/shortcut again).
+// Focus the existing window instead of silently doing nothing. This fixes "needs to click twice" symptom on Windows.
+app.on('second-instance', (_event, _commandLine, _workingDirectory) => {
+  Logger.log('检测到第二次启动实例，聚焦现有主窗口')
+  if (mainWindow) {
+    if (mainWindow.isMinimized()) mainWindow.restore()
+    mainWindow.show()
+    mainWindow.focus()
+  }
+})
 
 process.on('uncaughtException', (e) => {
   Logger.log(`主进程未捕获异常=> message:${e?.message}, stack=>${e?.stack}`)
@@ -102,7 +117,7 @@ async function asyncCreateWindow() {
     // 禁用web安全功能 --> 个人软件, 要啥自行车
     webPreferences: {
       // 使用preload.js, 以进行rpc通信
-      preload: path.resolve(__dirname, 'preload.js'),
+      preload: path.join(app.getAppPath(), 'dist', 'preload.js'),
       // 开启 DevTools.
       devTools: true,
       // 禁用同源策略, 允许加载任何来源的js
@@ -136,7 +151,7 @@ async function asyncCreateWindow() {
       // 启用webview标签
       webviewTag: true,
       // 启用preload.js, 以进行rpc通信
-      preload: path.join(__dirname, 'public', 'js-rpc', 'preload.js'),
+      preload: path.join(app.getAppPath(), 'dist', 'public', 'js-rpc', 'preload.js'),
     },
   })
   jsRpcWindow.webContents.on('did-finish-load', () => {
@@ -149,6 +164,14 @@ async function asyncCreateWindow() {
     Logger.log(`js-rpc签名窗口渲染进程退出:${JSON.stringify(details)}`)
   })
 
+  // Robust path helpers. Use app.getAppPath() so it works reliably in:
+  // - `electron dist/index.js` (dev after build)
+  // - packaged asar:false / asar:true
+  // - different working directories / shortcuts on Windows
+  const appRoot = app.getAppPath()
+  const getClientIndexPath = () => path.join(appRoot, 'dist', 'client', 'index.html')
+  const getJsRpcIndexPath = () => path.join(appRoot, 'dist', 'public', 'js-rpc', 'index.html')
+
   // and load the index.html of the app.
   // and load the index.html of the app.
   if (isDebug) {
@@ -160,29 +183,33 @@ async function asyncCreateWindow() {
       mainWindow.loadURL('http://localhost:8080')
     } else {
       // 默认加载已构建页面, 避免 preload 在 dev server 下失效
-      mainWindow.loadFile(path.resolve(__dirname, 'client', 'index.html'))
+      const clientPath = getClientIndexPath()
+      Logger.log(`[debug] 加载客户端页面: ${clientPath}`)
+      mainWindow.loadFile(clientPath)
     }
 
-    let jsRpcUri = path.resolve(__dirname, 'public', 'js-rpc', 'index.html')
-    jsRpcWindow.loadFile(jsRpcUri)
+    jsRpcWindow.loadFile(getJsRpcIndexPath())
   } else {
     // 线上地址
     // 构建出来后所有文件都位于dist目录中
-    // mac上载入url时必须明确指明协议, 否则无法载入
-    let webviewUri = path.resolve(__dirname, 'client', 'index.html')
-    if (isMacOS) {
-      // 针对macos的特殊hack, mac上只有这样mainWindow才能加载html
-      mainWindow.loadFile('./dist/client/index.html')
-    } else {
-      mainWindow.loadFile(webviewUri)
-    }
+    const clientPath = getClientIndexPath()
+    Logger.log(`加载客户端页面: ${clientPath}`)
+    mainWindow.loadFile(clientPath)
 
     // mainWindow.webContents.openDevTools()
 
-    let jsRpcUri = path.resolve(__dirname, 'public', 'js-rpc', 'index.html')
-    jsRpcWindow.loadFile(jsRpcUri)
+    jsRpcWindow.loadFile(getJsRpcIndexPath())
     // jsRpcWindow.webContents.openDevTools()
   }
+
+  // Log load failures (main cause of white screen if index.html or assets missing after bad build)
+  mainWindow.webContents.on('did-fail-load', (_event, errorCode, errorDescription, validatedURL) => {
+    Logger.log(`[主窗口] 页面加载失败: code=${errorCode}, desc=${errorDescription}, url=${validatedURL}`)
+    Logger.log(`[主窗口] 期望的index.html路径: ${getClientIndexPath()}`)
+  })
+  mainWindow.webContents.on('did-finish-load', () => {
+    Logger.log(`[主窗口] 页面加载完成`)
+  })
 
   // Emitted when the window is closed.
   mainWindow.on('closed', function () {
@@ -283,11 +310,6 @@ async function asyncRunAceCommand(command: string) {
   }
 }
 
-// This method will be called when Electron has finished
-// initialization and is ready to create browser windows.
-// Some APIs can only be used after this event occurs.
-app.on('ready', asyncCreateWindow)
-
 // Quit when all windows are closed.
 app.on('window-all-closed', function () {
   // On macOS it is common for applications and their menu bar
@@ -300,10 +322,25 @@ app.on('window-all-closed', function () {
 app.on('activate', function () {
   // On macOS it's common to re-create a window in the app when the
   // dock icon is clicked and there are no other windows open.
-
+  if (mainWindow === null) {
+    asyncCreateWindow()
+  }
 })
 
+// Single place for window + handler registration. Using whenReady is the modern pattern.
 app.whenReady().then(() => {
+  // Create main + js-rpc windows as early as possible on ready
+  asyncCreateWindow()
+
+  // Attach a ready-to-show to ensure the window becomes visible promptly (helps perceived launch on Windows)
+  // Note: we didn't set show:false on create, but this is defensive.
+  if (mainWindow) {
+    mainWindow.once('ready-to-show', () => {
+      if (!mainWindow.isVisible()) mainWindow.show()
+      mainWindow.focus()
+    })
+  }
+
   // 打开输出文件夹
   ipcMain.handle('open-output-dir', async () => {
     shell.showItemInFolder(PathConfig.outputPath)
@@ -524,19 +561,13 @@ app.whenReady().then(() => {
   })
   ipcMain.handle('open-js-rpc-window-devtools', async (event) => {
     // 打开jsRpcWindow调试面板
-    jsRpcWindow.show()
-    jsRpcWindow.webContents.openDevTools()
+    if (jsRpcWindow) {
+      jsRpcWindow.show()
+      jsRpcWindow.webContents.openDevTools()
+    }
     return true
   })
-
-
-  if (mainWindow === null) {
-    console.log("开始创建窗口")
-    asyncCreateWindow()
-  }
 })
-
-
 
 // In this file you can include the rest of your app's specific main process
 // code. You can also put them in separate files and require them here.

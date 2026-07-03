@@ -48,10 +48,9 @@ export default defineConfig(({ command, mode }) => {
       sourcemap: false,
       assetsDir: '', // require时使用相对路径, 解决加载问题
       rollupOptions: {
-        output: {
-          format: 'cjs', // 配置 Rollup 打包输出 CommonJs 格式
-        },
-        external: ['electron'], // 告诉 Rollup 不要去打包 electron
+        // Do not set format: 'cjs' here. For browser/Electron renderer module scripts we need ESM output.
+        // Setting cjs previously caused the renderer bundle to fail to execute (white screen in prod).
+        external: ['electron'],
       },
     },
     optimizeDeps: {

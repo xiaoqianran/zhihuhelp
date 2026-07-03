@@ -15,8 +15,8 @@
     "start": "electron dist/index.js  --zhihuhelp-debug",
     "ace": "node dist/ace.js",
     "watch": "babel src --copy-files --watch --out-dir dist  --verbose --source-maps --extensions \".ts,.tsx,.js,.jsx\"",
-    "build": "babel src --copy-files -d dist --verbose  --source-maps --extensions \".ts,.tsx,.js,.jsx\" ",
-    "build-without-sourcemap": "babel src --copy-files -d dist --verbose --extensions \".ts,.tsx,.js,.jsx\" ",
+    "build": "babel src --copy-files -d dist --verbose  --source-maps --extensions \".ts,.tsx,.js,.jsx\" && node -e \"const fs=require('fs');const p=require('path');const J5=require('json5');const d='dist';const t=p.join(d,'adonisrc.json');if(fs.existsSync(t)){const c=fs.readFileSync(t,'utf8');fs.writeFileSync(p.join(d,'.adonisrc.json'),JSON.stringify(J5.parse(c),null,2));console.log('ensured dist/.adonisrc.json for asar packaging');}\" ",
+    "build-without-sourcemap": "babel src --copy-files -d dist --verbose --extensions \".ts,.tsx,.js,.jsx\" && node -e \"const fs=require('fs');const p=require('path');const J5=require('json5');const d='dist';const t=p.join(d,'adonisrc.json');if(fs.existsSync(t)){const c=fs.readFileSync(t,'utf8');fs.writeFileSync(p.join(d,'.adonisrc.json'),JSON.stringify(J5.parse(c),null,2));console.log('ensured dist/.adonisrc.json for asar packaging');}\" ",
     "pack": "npm run build-without-sourcemap && npm run buildgui && electron-builder --dir",
     "dist": "npm run build-without-sourcemap && npm run buildgui && electron-builder",
     "electron-builder": "electron-builder",
@@ -34,13 +34,18 @@
     "copyright": "@姚泽源",
     "npmRebuild": false,
     "buildDependenciesFromSource": false,
-    "asar": false,
+    "asar": true,
+    "asarUnpack": [
+      "**/node_modules/sqlite3/**",
+      "**/node_modules/sharp/**",
+      "**/*.node"
+    ],
     "directories": {
       "output": "release"
     },
     "files": [
       "dist/**/*",
-      "gui/dist/**/*",
+      "!**/*.map",
       "node_modules/**/*"
     ],
     "win": {
@@ -49,7 +54,8 @@
           "target": "nsis"
         }
       ],
-      "icon": "src/public/icon/icon.png"
+      "icon": "src/public/icon/icon.png",
+      "requestedExecutionLevel": "asInvoker"
     },
     "mac": {
       "category": "zhihuhelp.app.category.type",
@@ -58,7 +64,10 @@
     },
     "nsis": {
       "oneClick": false,
-      "allowToChangeInstallationDirectory": true
+      "allowToChangeInstallationDirectory": true,
+      "shortcutName": "知乎助手",
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true
     }
   },
   "dependencies": {
@@ -113,7 +122,7 @@
     "@types/sharp": "^0.25.0",
     "@types/shelljs": "^0.7.8",
     "babel-plugin-root-import": "^6.6.0",
-    "electron": "23.2.0",
+    "electron": "^23.2.0",
     "electron-builder": "23.6.0",
     "eslint": "^8.13.0",
     "eslint-config-prettier": "^8.5.0",

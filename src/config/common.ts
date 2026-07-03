@@ -18,7 +18,8 @@ export default class CommonConfig {
   static readonly checkUpgradeUri = 'https://api.yaozeyuan.online/zhihuhelp/version'
 
   static readonly db_version = '1.0.2'
-  static readonly db_uri: string = path.resolve(__dirname, `../../zhihu_v${CommonConfig.db_version}.sqlite`)
+  // Use PathConfig.rootPath (which is now exe dir in packaged) so sqlite lives next to the app, works with asar:true
+  static readonly db_uri: string = path.resolve(PathConfig.rootPath, `zhihu_v${CommonConfig.db_version}.sqlite`)
 
   /**
    * 每次停止执行任务时长

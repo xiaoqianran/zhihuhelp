@@ -2,6 +2,20 @@
 
 1.  解决混合类型/问题类型无法输出 epub 的问题
 2.  添加电子书名长度限制, 最长 100 个字符
+3.  **重大修复 (Windows 启动问题)**: 
+    - 修复启动需要双击 / 第二次点击才能打开的问题（增加 second-instance 聚焦窗口处理）
+    - 修复启动后白屏：前端构建使用错误的 rollup format 'cjs' 导致渲染 bundle 无法执行；打包时前端 client/ 产物缺失
+    - 修复路径解析问题（mac hack + __dirname 相对路径在快捷方式/不同 cwd 下失败）
+    - 切换 asar:true + asarUnpack ，大幅加快安装速度（避免复制上万个小文件）
+    - 改进 rootPath 计算：输出/日志/config/sqlite 放在 exe 同级目录；package.json 读取适配 asar
+    - 构建脚本增强（buildgui 缺失依赖时自动 npm install，构建失败明确报错）
+    - 统一使用 app.getAppPath + 可靠 loadFile 路径 + 加载失败日志
+    - 清理 ready 事件重复创建窗口逻辑
+    - 确保 .adonisrc.json 打包进 asar
+
+# 2.5.0
+
+1.  重写整套代码
 
 # 2.5.0
 
