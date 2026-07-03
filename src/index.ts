@@ -103,7 +103,7 @@ function ensureJsRpcWindow() {
       contextIsolation: true,
       sandbox: false,
       webviewTag: true,
-      preload: path.join(app.getAppPath(), 'dist', 'public', 'js-rpc', 'preload.js'),
+      preload: path.join(getAppRootForResources(), 'dist', 'public', 'js-rpc', 'preload.js'),
     },
   })
   jsRpcWindow.webContents.on('did-finish-load', () => {
@@ -178,7 +178,7 @@ async function asyncCreateWindow() {
     // 禁用web安全功能 --> 个人软件, 要啥自行车
     webPreferences: {
       // 使用preload.js, 以进行rpc通信
-      preload: path.join(app.getAppPath(), 'dist', 'preload.js'),
+      preload: path.join(getAppRootForResources(), 'dist', 'preload.js'),
       // 开启 DevTools.
       devTools: true,
       // 禁用同源策略, 允许加载任何来源的js
@@ -198,11 +198,17 @@ async function asyncCreateWindow() {
   // 只有真正开始执行抓取任务、需要签名时才创建第二个渲染进程。
   // 见 ensureJsRpcWindow() 和 asyncJsRpcTriggerFunc。
 
-  // Robust path helpers. Use app.getAppPath() so it works reliably in:
-  // - `electron dist/index.js` (dev after build)
-  // - packaged asar:false / asar:true
-  // - different working directories / shortcuts on Windows
-  const appRoot = app.getAppPath()
+  // Robust path helpers.
+  // Prefer process.resourcesPath + app.asar for packaged installs (NSIS asar:true).
+  // Falls back to app.getAppPath() for dev / unpacked.
+  function getAppRootForResources() {
+    if (app.isPackaged) {
+      // In NSIS packaged: resources/app.asar is next to the exe in resources/
+      return path.join(process.resourcesPath, 'app.asar')
+    }
+    return app.getAppPath()
+  }
+  const appRoot = getAppRootForResources()
   const getClientIndexPath = () => path.join(appRoot, 'dist', 'client', 'index.html')
   const getJsRpcIndexPath = () => path.join(appRoot, 'dist', 'public', 'js-rpc', 'index.html')
 
@@ -227,7 +233,18 @@ async function asyncCreateWindow() {
     Logger.log(`加载客户端页面: ${clientPath}`)
     mainWindow.loadFile(clientPath)
 
-    // mainWindow.webContents.openDevTools()
+    // 临时打开 DevTools 方便排查白屏问题（用户测试时可以看到 console 错误）
+    // 后续可以注释掉
+    mainWindow.webContents.openDevTools()
+
+    // 最后兜底：如果 ready-to-show / did-finish 都没触发，2秒后强制显示
+    setTimeout(() => {
+      if (mainWindow && !mainWindow.isVisible()) {
+        Logger.log(`[主窗口] 兜底强制 show 窗口`)
+        mainWindow.show()
+        mainWindow.focus()
+      }
+    }, 2000)
   }
 
   // Log load failures (main cause of white screen if index.html or assets missing after bad build)
@@ -240,7 +257,11 @@ async function asyncCreateWindow() {
   })
   mainWindow.webContents.on('did-finish-load', () => {
     Logger.log(`[主窗口] 页面加载完成`)
-    // 内容就绪后显示窗口（配合 show:false + backgroundColor 减少白屏感知）
+  })
+
+  // Standard pattern: show when ready to avoid blank/white screen issues
+  mainWindow.once('ready-to-show', () => {
+    Logger.log(`[主窗口] ready-to-show`)
     if (mainWindow && !mainWindow.isVisible()) {
       mainWindow.show()
       mainWindow.focus()
