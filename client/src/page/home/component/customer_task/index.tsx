@@ -169,10 +169,18 @@ export default () => {
       }
       statusStore.loading.startTask = false
 
-      // 直接派发任务即可
-      window.electronAPI['start-customer-task']({
-        config: config,
-      })
+      // 直接派发任务，处理返回结果以避免未处理 rejection 导致问题
+      try {
+        const result = await window.electronAPI['start-customer-task']({
+          config: config,
+        })
+        if (typeof result === 'string' && result.startsWith('failed')) {
+          // 可以在日志看到，这里简单提示
+          console.error('任务启动失败:', result)
+        }
+      } catch (e) {
+        console.error('提交任务 IPC 出错:', e)
+      }
       setCurrentTab(Consts_Page.Const_Page_运行日志)
     },
     asyncCheckLogin: async () => {

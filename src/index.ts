@@ -76,6 +76,15 @@ let jsRpcReadyPromise = new Promise<void>((resolve) => {
   resolveJsRpcReady = resolve
 })
 
+// Robust path helper at top level so it can be used by lazy ensureJsRpcWindow etc.
+function getAppRootForResources() {
+  if (app && app.isPackaged) {
+    // In NSIS packaged: resources/app.asar is next to the exe in resources/
+    return path.join(process.resourcesPath, 'app.asar')
+  }
+  return app ? app.getAppPath() : path.resolve(__dirname, '../../')
+}
+
 // 按需创建 js-rpc 签名窗口（lazy）。首次需要签名时才真正创建第二个 BrowserWindow，
 // 显著减少普通启动时的内存和 CPU 开销（用户打开应用看历史数据或配任务时不需要它）。
 function ensureJsRpcWindow() {
@@ -116,16 +125,9 @@ function ensureJsRpcWindow() {
     Logger.log(`js-rpc签名窗口渲染进程退出:${JSON.stringify(details)}`)
   })
 
-  const jsRpcUri = getJsRpcIndexPathForLazy() // defined later in scope, fallback
-  // Because the helper may not be hoisted, we compute here
-  const jsRpcPath = path.join(app.getAppPath(), 'dist', 'public', 'js-rpc', 'index.html')
+  const jsRpcPath = path.join(getAppRootForResources(), 'dist', 'public', 'js-rpc', 'index.html')
   jsRpcWindow.loadFile(jsRpcPath)
   return jsRpcWindow
-}
-
-// small helper for path (avoid TDZ issues)
-function getJsRpcIndexPathForLazy() {
-  return path.join(app.getAppPath(), 'dist', 'public', 'js-rpc', 'index.html')
 }
 
 const isMacOS = process.platform === 'darwin'
@@ -198,16 +200,6 @@ async function asyncCreateWindow() {
   // 只有真正开始执行抓取任务、需要签名时才创建第二个渲染进程。
   // 见 ensureJsRpcWindow() 和 asyncJsRpcTriggerFunc。
 
-  // Robust path helpers.
-  // Prefer process.resourcesPath + app.asar for packaged installs (NSIS asar:true).
-  // Falls back to app.getAppPath() for dev / unpacked.
-  function getAppRootForResources() {
-    if (app.isPackaged) {
-      // In NSIS packaged: resources/app.asar is next to the exe in resources/
-      return path.join(process.resourcesPath, 'app.asar')
-    }
-    return app.getAppPath()
-  }
   const appRoot = getAppRootForResources()
   const getClientIndexPath = () => path.join(appRoot, 'dist', 'client', 'index.html')
   const getJsRpcIndexPath = () => path.join(appRoot, 'dist', 'public', 'js-rpc', 'index.html')
