@@ -28,7 +28,6 @@ try {
 }
 
 const Const_Current_Path = path.resolve(__dirname)
-let ace = new Ignitor(Const_Current_Path).ace()
 let argv = process.argv
 let isDebug = argv.includes('--zhihuhelp-debug')
 let { app, BrowserWindow, ipcMain, session, shell } = Electron
@@ -79,8 +78,11 @@ let jsRpcReadyPromise = new Promise<void>((resolve) => {
 // Robust path helper at top level so it can be used by lazy ensureJsRpcWindow etc.
 function getAppRootForResources() {
   if (app && app.isPackaged) {
-    // In NSIS packaged: resources/app.asar is next to the exe in resources/
-    return path.join(process.resourcesPath, 'app.asar')
+    const appAsarPath = path.join(process.resourcesPath, 'app.asar')
+    if (fs.existsSync(appAsarPath)) {
+      return appAsarPath
+    }
+    return path.join(process.resourcesPath, 'app')
   }
   return app ? app.getAppPath() : path.resolve(__dirname, '../../')
 }
@@ -353,11 +355,21 @@ function asyncTimeout<T>(promise: Promise<T>, timeoutMs: number, message: string
 
 async function asyncRunAceCommand(command: string) {
   ; (global as any).__zhihuhelp_last_command_error = null
-  await ace.handle([command])
+  const InitEnv = require('~/src/command/init_env').default
+  const FetchCustomer = require('~/src/command/fetch/customer').default
+  const GenerateCustomer = require('~/src/command/generate/customer').default
+  const { Kernel } = require('@adonisjs/ace')
+  const application = new Ignitor(Const_Current_Path).application('console')
+  const kernel = new Kernel(application)
+  kernel.register([InitEnv, FetchCustomer, GenerateCustomer])
+  const commandInstance = await kernel.exec(command, [])
   const commandError = (global as any).__zhihuhelp_last_command_error
   if (commandError) {
     ; (global as any).__zhihuhelp_last_command_error = null
     throw commandError
+  }
+  if (commandInstance.exitCode) {
+    throw new Error(`Ace命令执行失败:${command}, exitCode:${commandInstance.exitCode}`)
   }
 }
 
@@ -432,8 +444,6 @@ app.whenReady().then(() => {
       Logger.log(`开始执行任务`)
       Logger.log(`当前抓取方式:${config.fetchConfig?.mode === 'restart' ? '从头抓取' : '继续上次'}`)
 
-      Logger.log(`初始化ace命令集`)
-      await ace.handle(['generate:manifest'])
       Logger.log(`初始化运行环境`)
       await asyncRunAceCommand('Init:Env')
 
@@ -453,8 +463,19 @@ app.whenReady().then(() => {
   }
 
   ipcMain.handle('start-customer-task', async (_event, { config }: { config: Type_TaskConfig.Type_Task_Config }) => {
-    Logger.log(`[TEST] 收到 start-customer-task`)
-    Logger.log(`[TEST] config=${JSON.stringify(config).slice(0, 1000)}`)
+    Logger.log(`收到 start-customer-task`)
+    Logger.log(`config=${JSON.stringify(config).slice(0, 1000)}`)
+
+    if (isRunning) {
+      return '目前尚有任务执行, 请稍后'
+    }
+
+    isRunning = true
+
+    setTimeout(() => {
+      void runCustomerTask(config)
+    }, 0)
+
     return 'started'
   })
 
