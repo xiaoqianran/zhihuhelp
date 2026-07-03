@@ -122,7 +122,7 @@ export default () => {
   Ahooks.useMount(async () => {
     // 初始化时载入一次
     let config = await window.electronAPI['get-common-config']().catch((err) => {
-      return { ...Const_Default_FormValue }
+      return { ...Consts_Task_Config.Const_Default_Config }
     })
     let initValue = Util.generateStatus(config)
 
@@ -283,7 +283,7 @@ export default () => {
               >
                 <Form form={modalForm}>
                   <Form.Item name="batchUrlListStr" label="任务列表">
-                    <Input.TextArea suffix={''} autoSize={{ minRows: 10 }} allowClear></Input.TextArea>
+                    <Input.TextArea autoSize={{ minRows: 10 }} allowClear></Input.TextArea>
                   </Form.Item>
                 </Form>
               </Modal>
@@ -394,7 +394,7 @@ export default () => {
             }}
             wrapperCol={{ span: 18 }}
           >
-            <TextArea suffix={''} allowClear />
+            <TextArea allowClear />
           </Form.Item>
           <Form.Item wrapperCol={{ span: 14, offset: 3 }}>
             <Button type="primary" htmlType="submit" loading={statusSnap.loading.startTask}>

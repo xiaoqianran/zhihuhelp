@@ -11,7 +11,6 @@ import BatchFetchQuestion from '~/src/api/batch/question'
 import BatchFetchColumn from '~/src/api/batch/column'
 import BatchFetchArticle from './article'
 import CommonConfig from '~/src/config/common'
-import lodash from 'lodash'
 
 class BatchFetchAuthorActivity extends Base {
   async fetch(urlToken: string) {
@@ -111,33 +110,34 @@ class BatchFetchAuthorActivity extends Base {
       .unix(endAt)
       .format(DATE_FORMAT.Const_Display_By_Day)}`
     this.log(`抓取时间范围为:${rangeString}内的记录`)
-    for (let fetchAt = endAt; startAt <= fetchAt && fetchAt <= endAt;) {
-      let asyncTaskFunc = async () => {
-        this.log(`[${rangeString}]抓取${moment.unix(fetchAt).format(DATE_FORMAT.Const_Display_By_Second)}的记录`)
-        let activityList = await ActivityApi.asyncGetAutherActivityList(urlToken, fetchAt)
-        if (activityList.length === 0) {
-          // 没有这段时间的记录或者接口调用失败, 自动往前挪一天
-          fetchAt = fetchAt - 86400
-          return
-        }
+    let loopCounter = 0
+    let fetchAt = endAt
+    while (startAt <= fetchAt && fetchAt <= endAt) {
+      const currentFetchAt = fetchAt
+      this.log(`[${rangeString}]抓取${moment.unix(currentFetchAt).format(DATE_FORMAT.Const_Display_By_Second)}的记录`)
+      let activityList = await ActivityApi.asyncGetAutherActivityList(urlToken, currentFetchAt)
+      if (activityList.length === 0) {
+        // 没有这段时间的记录或者接口调用失败, 自动往前挪一天
+        fetchAt = currentFetchAt - 86400
+      } else {
+        let nextFetchAt = currentFetchAt - 1
         for (let activityRecord of activityList) {
           // 更新时间(id是毫秒值)
-          fetchAt = Number.parseInt(`${activityRecord.id / 1000}`)
-          if (lodash.isNumber(fetchAt) === false) {
-            fetchAt = 0
+          const recordAt = Math.floor(Number(activityRecord.id) / 1000)
+          if (Number.isFinite(recordAt)) {
+            nextFetchAt = Math.min(nextFetchAt, recordAt - 1)
           }
           await MActivity.asyncReplaceActivity(activityRecord)
         }
+        fetchAt = nextFetchAt
       }
-      // 通过统一的任务中心执行
-      CommonUtil.addAsyncTaskFunc({
-        asyncTaskFunc,
-        needProtect: true,
-      })
+
+      loopCounter = loopCounter + 1
+      if (loopCounter % CommonConfig.protect_Loop_Count === 0) {
+        this.log(`第${loopCounter}次抓取, 休眠${CommonConfig.protect_To_Wait_ms / 1000}s, 保护知乎服务器`)
+        await CommonUtil.asyncSleep(CommonConfig.protect_To_Wait_ms)
+      }
     }
-    await CommonUtil.asyncWaitAllTaskComplete({
-      needTTL: true
-    })
     this.log(`[${rangeString}]${rangeString}期间的记录抓取完毕`)
   }
 }

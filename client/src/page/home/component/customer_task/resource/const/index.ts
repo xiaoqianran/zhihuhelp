@@ -147,8 +147,8 @@ export const CONST_Order_By_赞同数 = 'voteUpCount' as const
 export const CONST_Order_By_评论数 = 'commentCount' as const
 export const CONST_Order_Desc = 'desc' as const
 export const CONST_Order_Asc = 'asc' as const
-export const CONST_Image_Quilty_高清 = 'raw' as const
-export const CONST_Image_Quilty_原图 = 'hd' as const
+export const CONST_Image_Quilty_高清 = 'hd' as const
+export const CONST_Image_Quilty_原图 = 'raw' as const
 export const CONST_Image_Quilty_无图 = 'none' as const
 
 

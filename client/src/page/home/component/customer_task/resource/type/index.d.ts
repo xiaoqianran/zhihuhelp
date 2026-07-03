@@ -19,8 +19,8 @@ export type Order_By_创建时间 = 'createAt'
 export type Order_By_更新时间 = 'updateAt'
 export type Order_By_赞同数 = 'voteUpCount'
 export type Order_By_评论数 = 'commentCount'
-export type Image_Quilty_高清 = 'raw'
-export type Image_Quilty_原图 = 'hd'
+export type Image_Quilty_高清 = 'hd'
+export type Image_Quilty_原图 = 'raw'
 export type Image_Quilty_无图 = 'none'
 export type AuthorCollectionType =
     | Task_Type_用户提问过的所有问题
