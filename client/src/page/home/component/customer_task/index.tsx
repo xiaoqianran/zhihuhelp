@@ -174,10 +174,8 @@ export default () => {
         const result = await window.electronAPI['start-customer-task']({
           config: config,
         })
-        if (typeof result === 'string' && result.startsWith('failed')) {
-          // 可以在日志看到，这里简单提示
-          console.error('任务启动失败:', result)
-        }
+        // 现在立即返回 'started' ，实际结果和错误会在运行日志中体现
+        console.log('任务已提交启动:', result)
       } catch (e) {
         console.error('提交任务 IPC 出错:', e)
       }

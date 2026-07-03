@@ -410,12 +410,8 @@ app.whenReady().then(() => {
     return asyncGetZhihuLoginStatus()
   })
 
-  // 启动任务
-  ipcMain.handle('start-customer-task', async (event, { config }: { config: Type_TaskConfig.Type_Task_Config }) => {
-    if (isRunning) {
-      return '目前尚有任务执行, 请稍后'
-    }
-    isRunning = true
+  // 启动任务 - 立即返回，避免阻塞 IPC 响应（任务在后台执行，日志会更新到运行日志 tab）
+  async function runCustomerTask(config: Type_TaskConfig.Type_Task_Config) {
     try {
       Logger.log('开始工作')
 
@@ -448,14 +444,25 @@ app.whenReady().then(() => {
       Logger.log(`所有任务执行完毕, 打开电子书文件夹 => `, PathConfig.outputPath)
       // 输出打开文件夹
       shell.showItemInFolder(PathConfig.outputPath)
-      return 'success'
     } catch (e: any) {
       Logger.log(`任务执行失败, 已停止后续生成步骤`)
       Logger.log(`失败原因=> message:${e?.message}, stack=>${e?.stack}`)
-      return `failed: ${e?.message ?? e}`
     } finally {
       isRunning = false
     }
+  }
+
+  ipcMain.handle('start-customer-task', async (event, { config }: { config: Type_TaskConfig.Type_Task_Config }) => {
+    if (isRunning) {
+      return '目前尚有任务执行, 请稍后'
+    }
+    isRunning = true
+    // 后台启动，不阻塞返回
+    runCustomerTask(config).catch((e) => {
+      Logger.log('后台任务未捕获错误', e)
+      isRunning = false
+    })
+    return 'started'
   })
 
 
