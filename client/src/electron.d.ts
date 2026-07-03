@@ -24,6 +24,7 @@ export interface IElectronAPI {
   'get-log-content': () => Promise<string>
   'clear-log-content': () => Promise<void>
   'open-js-rpc-window-devtools': () => Promise<void>
+  'test-js-rpc-window': () => Promise<boolean>
 }
 
 declare global {

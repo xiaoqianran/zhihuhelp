@@ -452,16 +452,9 @@ app.whenReady().then(() => {
     }
   }
 
-  ipcMain.handle('start-customer-task', async (event, { config }: { config: Type_TaskConfig.Type_Task_Config }) => {
-    if (isRunning) {
-      return '目前尚有任务执行, 请稍后'
-    }
-    isRunning = true
-    // 后台启动，不阻塞返回
-    runCustomerTask(config).catch((e) => {
-      Logger.log('后台任务未捕获错误', e)
-      isRunning = false
-    })
+  ipcMain.handle('start-customer-task', async (_event, { config }: { config: Type_TaskConfig.Type_Task_Config }) => {
+    Logger.log(`[TEST] 收到 start-customer-task`)
+    Logger.log(`[TEST] config=${JSON.stringify(config).slice(0, 1000)}`)
     return 'started'
   })
 
@@ -560,6 +553,13 @@ app.whenReady().then(() => {
   //   let result = await asyncJsRpcTriggerFunc({ method, paramList })
   //   return JSON.stringify(result)
   // })
+
+  ipcMain.handle('test-js-rpc-window', async () => {
+    Logger.log(`[TEST] before ensureJsRpcWindow`)
+    ensureJsRpcWindow()
+    Logger.log(`[TEST] after ensureJsRpcWindow`)
+    return true
+  })
 
   // 回收js-rpc调用响应值
   ipcMain.handle('js-rpc-response', async (event, { id, value }) => {

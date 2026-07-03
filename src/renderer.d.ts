@@ -10,6 +10,7 @@ export interface IElectronAPI {
     ['get-log-content']: (...args) => Promise<any>,
     ['clear-log-content']: () => Promise<any>,
     ['open-js-rpc-window-devtools']: () => Promise<any>,
+    ['test-js-rpc-window']: () => Promise<any>,
     loadPreferences: () => Promise<void>,
 }
 
